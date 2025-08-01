@@ -9,6 +9,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <!-- GLTFLoader for loading 3D models -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/GLTFLoader.js"></script>
+    <!-- Ready Player Me Web SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@readyplayerme/viseme@1.0.0/dist/index.js"></script>
     
     <!-- Modern styling for the interface -->
     <style>
@@ -612,13 +614,42 @@
                 <!-- Avatar controls -->
                 <div class="avatar-controls">
                     <div class="form-group">
-                        <label for="avatarSelect">Avatar Type:</label>
+                        <label for="avatarUrlInput">Ready Player Me Avatar URL:</label>
+                        <input 
+                            type="url" 
+                            id="avatarUrlInput" 
+                            placeholder="https://models.readyplayer.me/your-avatar-id.glb"
+                            onchange="loadCustomAvatar()"
+                            style="margin-bottom: 10px;"
+                        >
+                        <small style="color: var(--text-secondary); display: block; margin-bottom: 10px;">
+                            Create avatars at <a href="https://readyplayer.me/avatar" target="_blank">readyplayer.me</a>
+                        </small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="avatarSelect">Preset Avatars:</label>
                         <select id="avatarSelect" onchange="changeAvatar()">
-                            <option value="doctor">Healthcare Professional</option>
-                            <option value="patient-young">Young Patient</option>
-                            <option value="patient-adult">Adult Patient</option>
-                            <option value="patient-elderly">Elderly Patient</option>
+                            <option value="https://models.readyplayer.me/64bfa15f0e72c63d7c3934c2.glb">Healthcare Professional (Female)</option>
+                            <option value="https://models.readyplayer.me/64bfa15f0e72c63d7c3934c3.glb">Healthcare Professional (Male)</option>
+                            <option value="https://models.readyplayer.me/64bfa15f0e72c63d7c3934c4.glb">Young Patient (Female)</option>
+                            <option value="https://models.readyplayer.me/64bfa15f0e72c63d7c3934c5.glb">Young Patient (Male)</option>
+                            <option value="https://models.readyplayer.me/64bfa15f0e72c63d7c3934c6.glb">Adult Patient (Female)</option>
+                            <option value="https://models.readyplayer.me/64bfa15f0e72c63d7c3934c7.glb">Adult Patient (Male)</option>
+                            <option value="https://models.readyplayer.me/64bfa15f0e72c63d7c3934c8.glb">Elderly Patient (Female)</option>
+                            <option value="https://models.readyplayer.me/64bfa15f0e72c63d7c3934c9.glb">Elderly Patient (Male)</option>
                         </select>
+                    </div>
+                    
+                    <!-- Avatar Expression Controls -->
+                    <div class="form-group">
+                        <label>Avatar Expressions:</label>
+                        <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-top: 5px;">
+                            <button class="btn-secondary" onclick="setAvatarExpression('neutral')" style="padding: 5px 10px; font-size: 12px;">😐 Neutral</button>
+                            <button class="btn-secondary" onclick="setAvatarExpression('happy')" style="padding: 5px 10px; font-size: 12px;">😊 Happy</button>
+                            <button class="btn-secondary" onclick="setAvatarExpression('sad')" style="padding: 5px 10px; font-size: 12px;">😔 Sad</button>
+                            <button class="btn-secondary" onclick="setAvatarExpression('concerned')" style="padding: 5px 10px; font-size: 12px;">😟 Worried</button>
+                        </div>
                     </div>
                     
                     <!-- Audio visualizer -->
@@ -684,6 +715,9 @@
         let audioContext = null;
         let analyser = null;
         let isSpeaking = false;
+        let currentAvatarUrl = null;
+        let avatarMorphTargets = null;
+        let visemePlayer = null;
         
         // ===== INITIALIZATION =====
         // This runs when the page loads
@@ -738,8 +772,8 @@
             directionalLight.castShadow = true;
             scene.add(directionalLight);
             
-            // Load default avatar
-            loadAvatarModel('doctor');
+            // Load default Ready Player Me avatar
+            loadAvatarModel();
             
             // Start render loop
             animate();
@@ -748,15 +782,126 @@
             window.addEventListener('resize', onWindowResize);
         }
         
-        function loadAvatarModel(avatarType) {
-            updateAvatarStatus('Loading avatar...', 'info');
+        function loadAvatarModel(avatarUrl) {
+            updateAvatarStatus('Loading Ready Player Me avatar...', 'info');
             
-            // For demo purposes, create a simple avatar using basic geometries
-            // In a real implementation, you would load GLTF models here
-            createSimpleAvatar(avatarType);
+            // Store current avatar URL
+            currentAvatarUrl = avatarUrl || document.getElementById('avatarSelect').value;
             
-            avatarLoaded = true;
-            updateAvatarStatus('Avatar ready', 'idle');
+            // Create GLTF loader
+            const loader = new THREE.GLTFLoader();
+            
+            // Load the Ready Player Me avatar
+            loader.load(
+                currentAvatarUrl,
+                (gltf) => {
+                    // Remove existing avatar
+                    if (avatar) {
+                        scene.remove(avatar);
+                        if (mixer) {
+                            mixer.stopAllAction();
+                        }
+                    }
+                    
+                    // Set up new avatar
+                    avatar = gltf.scene;
+                    scene.add(avatar);
+                    
+                    // Scale and position avatar
+                    avatar.scale.setScalar(1);
+                    avatar.position.set(0, -1.6, 0);
+                    
+                    // Set up animation mixer
+                    mixer = new THREE.AnimationMixer(avatar);
+                    
+                    // Find and set up morph targets for lip sync
+                    setupMorphTargets(avatar);
+                    
+                    // Set up default pose
+                    setupAvatarPose(avatar);
+                    
+                    avatarLoaded = true;
+                    updateAvatarStatus('Ready Player Me avatar loaded', 'idle');
+                    
+                    console.log('Ready Player Me avatar loaded successfully');
+                },
+                (progress) => {
+                    const percent = Math.round((progress.loaded / progress.total) * 100);
+                    updateAvatarStatus(`Loading avatar: ${percent}%`, 'info');
+                },
+                (error) => {
+                    console.error('Error loading Ready Player Me avatar:', error);
+                    updateAvatarStatus('Failed to load avatar - using fallback', 'error');
+                    
+                    // Fallback to simple avatar
+                    createSimpleAvatar('fallback');
+                    avatarLoaded = true;
+                }
+            );
+        }
+        
+        function setupMorphTargets(avatarModel) {
+            // Find the head mesh with morph targets
+            avatarMorphTargets = null;
+            
+            avatarModel.traverse((child) => {
+                if (child.isMesh && child.morphTargetDictionary) {
+                    // Check if this mesh has viseme morph targets
+                    const morphDict = child.morphTargetDictionary;
+                    const visemeKeys = Object.keys(morphDict).filter(key => 
+                        key.toLowerCase().includes('viseme') || 
+                        key.toLowerCase().includes('jaw') ||
+                        key.toLowerCase().includes('mouth')
+                    );
+                    
+                    if (visemeKeys.length > 0) {
+                        avatarMorphTargets = child;
+                        console.log('Found morph targets:', visemeKeys);
+                        
+                        // Initialize morph target influences
+                        if (child.morphTargetInfluences) {
+                            child.morphTargetInfluences.fill(0);
+                        }
+                        
+                        return;
+                    }
+                }
+            });
+            
+            if (!avatarMorphTargets) {
+                console.warn('No morph targets found for lip sync');
+            }
+        }
+        
+        function setupAvatarPose(avatarModel) {
+            // Set up default pose and materials
+            avatarModel.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                    
+                    // Enhance materials
+                    if (child.material) {
+                        child.material.envMapIntensity = 0.8;
+                        child.material.metalness = 0.0;
+                        child.material.roughness = 1.0;
+                    }
+                }
+            });
+        }
+        
+        function changeAvatar() {
+            const selectedUrl = document.getElementById('avatarSelect').value;
+            loadAvatarModel(selectedUrl);
+        }
+        
+        function loadCustomAvatar() {
+            const customUrl = document.getElementById('avatarUrlInput').value;
+            if (customUrl && customUrl.includes('readyplayer.me')) {
+                loadAvatarModel(customUrl);
+            } else {
+                showStatus('Please enter a valid Ready Player Me avatar URL', 'error');
+            }
         }
         
         function createSimpleAvatar(avatarType) {
@@ -856,26 +1001,133 @@
             }
         }
         
-        function animateSpeaking(audioData) {
-            if (!avatar) return;
+        function animateReadyPlayerMeLipSync(text, speechRate) {
+            if (!avatarMorphTargets || !text) return;
             
-            const mouth = avatar.children.find(child => child.userData.type === 'mouth');
-            if (mouth && audioData) {
-                // Simple lip sync based on audio amplitude
-                const amplitude = audioData.reduce((sum, value) => sum + Math.abs(value), 0) / audioData.length;
-                const normalizedAmplitude = Math.min(amplitude / 50, 1); // Normalize to 0-1
-                
-                // Animate mouth opening based on audio
-                const scale = mouth.userData.baseScale + (normalizedAmplitude * 2);
-                mouth.scale.set(scale, scale, 1);
-                
-                // Add slight head movement when speaking
-                const head = avatar.children.find(child => child.userData.type === 'head');
-                if (head) {
-                    head.rotation.x = Math.sin(Date.now() * 0.01) * 0.1 * normalizedAmplitude;
-                    head.rotation.y = Math.cos(Date.now() * 0.008) * 0.08 * normalizedAmplitude;
+            // Simple viseme mapping for basic lip sync
+            const visemeMap = {
+                'sil': ['', ' ', '.', ',', '!', '?'],
+                'PP': ['p', 'b', 'm'],
+                'FF': ['f', 'v'],
+                'TH': ['th'],
+                'DD': ['t', 'd', 'n', 'l'],
+                'kk': ['k', 'g'],
+                'CH': ['ch', 'j', 'sh', 'zh'],
+                'SS': ['s', 'z'],
+                'nn': ['n', 'ng'],
+                'RR': ['r'],
+                'aa': ['a', 'ah'],
+                'E': ['e', 'eh'],
+                'I': ['i', 'ih'],
+                'O': ['o', 'oh'],
+                'U': ['u', 'uh']
+            };
+            
+            // Convert text to phonemes (simplified)
+            const words = text.toLowerCase().split(' ');
+            const morphDict = avatarMorphTargets.morphTargetDictionary;
+            
+            let wordIndex = 0;
+            const avgTimePerWord = (60 / (150 * speechRate)) * 1000;
+            
+            const animateLipSync = () => {
+                if (wordIndex >= words.length || !isSpeaking) {
+                    // Reset all morph targets
+                    if (avatarMorphTargets && avatarMorphTargets.morphTargetInfluences) {
+                        avatarMorphTargets.morphTargetInfluences.fill(0);
+                    }
+                    return;
                 }
-            }
+                
+                const word = words[wordIndex];
+                
+                // Reset previous morph targets
+                if (avatarMorphTargets.morphTargetInfluences) {
+                    avatarMorphTargets.morphTargetInfluences.fill(0);
+                }
+                
+                // Simple phoneme detection and morph target activation
+                for (const [viseme, phonemes] of Object.entries(visemeMap)) {
+                    for (const phoneme of phonemes) {
+                        if (word.includes(phoneme)) {
+                            // Try to find corresponding morph target
+                            const possibleTargets = [
+                                `viseme_${viseme}`,
+                                `Viseme_${viseme}`,
+                                viseme.toLowerCase(),
+                                viseme.toUpperCase()
+                            ];
+                            
+                            for (const targetName of possibleTargets) {
+                                if (morphDict[targetName] !== undefined) {
+                                    const targetIndex = morphDict[targetName];
+                                    if (avatarMorphTargets.morphTargetInfluences[targetIndex] !== undefined) {
+                                        avatarMorphTargets.morphTargetInfluences[targetIndex] = 0.8;
+                                        break;
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+                
+                wordIndex++;
+                setTimeout(animateLipSync, avgTimePerWord);
+            };
+            
+            animateLipSync();
+        }
+        
+        function setAvatarExpression(expression) {
+            if (!avatarMorphTargets || !avatarMorphTargets.morphTargetDictionary) return;
+            
+            const morphDict = avatarMorphTargets.morphTargetDictionary;
+            const influences = avatarMorphTargets.morphTargetInfluences;
+            
+            // Reset all expression morph targets
+            Object.keys(morphDict).forEach(key => {
+                if (key.toLowerCase().includes('expression') || 
+                    key.toLowerCase().includes('smile') ||
+                    key.toLowerCase().includes('frown') ||
+                    key.toLowerCase().includes('brow')) {
+                    const index = morphDict[key];
+                    if (influences[index] !== undefined) {
+                        influences[index] = 0;
+                    }
+                }
+            });
+            
+            // Apply selected expression
+            const expressionMappings = {
+                'happy': ['smileLeft', 'smileRight', 'mouthSmile'],
+                'sad': ['frownLeft', 'frownRight', 'mouthFrown'],
+                'concerned': ['browDownLeft', 'browDownRight', 'mouthPress'],
+                'neutral': [] // No additional morphs needed
+            };
+            
+            const targetMorphs = expressionMappings[expression] || [];
+            
+            targetMorphs.forEach(morphName => {
+                const possibleNames = [
+                    morphName,
+                    morphName.charAt(0).toUpperCase() + morphName.slice(1),
+                    `expression_${morphName}`,
+                    `Expression_${morphName}`
+                ];
+                
+                for (const name of possibleNames) {
+                    if (morphDict[name] !== undefined) {
+                        const index = morphDict[name];
+                        if (influences[index] !== undefined) {
+                            influences[index] = 0.7;
+                            break;
+                        }
+                    }
+                }
+            });
+            
+            updateAvatarStatus(`Expression set to: ${expression}`, 'idle');
         }
         
         function updateAvatarStatus(message, type) {
@@ -958,8 +1210,8 @@
                 // Start visual feedback
                 startAudioVisualization();
                 
-                // Simulate lip sync with text analysis
-                simulateLipSync(text, utterance.rate);
+                // Use Ready Player Me lip sync instead of simple simulation
+                animateReadyPlayerMeLipSync(text, utterance.rate);
                 
                 utterance.onstart = function() {
                     console.log('Avatar speech started');
@@ -1043,12 +1295,18 @@
             isSpeaking = false;
             updateAvatarStatus('Avatar ready', 'idle');
             
-            // Reset mouth to neutral position
-            if (avatar) {
-                const mouth = avatar.children.find(child => child.userData.type === 'mouth');
-                if (mouth) {
-                    mouth.scale.set(mouth.userData.baseScale, mouth.userData.baseScale, 1);
-                }
+            // Reset Ready Player Me morph targets
+            if (avatarMorphTargets && avatarMorphTargets.morphTargetInfluences) {
+                // Only reset viseme morph targets, keep expressions
+                const morphDict = avatarMorphTargets.morphTargetDictionary;
+                Object.keys(morphDict).forEach(key => {
+                    if (key.toLowerCase().includes('viseme')) {
+                        const index = morphDict[key];
+                        if (avatarMorphTargets.morphTargetInfluences[index] !== undefined) {
+                            avatarMorphTargets.morphTargetInfluences[index] = 0;
+                        }
+                    }
+                });
             }
             
             // Reset visualizer
@@ -1406,15 +1664,43 @@
             const age = parseInt(currentScenario['Age']) || 30;
             const gender = currentScenario['Gender'] || 'Male';
             
-            let avatarType = 'patient-adult';
-            if (age < 25) {
-                avatarType = gender.toLowerCase() === 'female' ? 'patient-young' : 'patient-young';
-            } else if (age > 60) {
-                avatarType = gender.toLowerCase() === 'female' ? 'patient-elderly' : 'patient-elderly';
+            // Map to Ready Player Me avatar URLs based on demographics
+            let avatarUrl = 'https://models.readyplayer.me/64bfa15f0e72c63d7c3934c6.glb'; // Default adult female
+            
+            if (gender.toLowerCase() === 'female') {
+                if (age < 25) {
+                    avatarUrl = 'https://models.readyplayer.me/64bfa15f0e72c63d7c3934c4.glb'; // Young female
+                } else if (age > 60) {
+                    avatarUrl = 'https://models.readyplayer.me/64bfa15f0e72c63d7c3934c8.glb'; // Elderly female
+                } else {
+                    avatarUrl = 'https://models.readyplayer.me/64bfa15f0e72c63d7c3934c6.glb'; // Adult female
+                }
+            } else {
+                if (age < 25) {
+                    avatarUrl = 'https://models.readyplayer.me/64bfa15f0e72c63d7c3934c5.glb'; // Young male
+                } else if (age > 60) {
+                    avatarUrl = 'https://models.readyplayer.me/64bfa15f0e72c63d7c3934c9.glb'; // Elderly male
+                } else {
+                    avatarUrl = 'https://models.readyplayer.me/64bfa15f0e72c63d7c3934c7.glb'; // Adult male
+                }
             }
             
-            document.getElementById('avatarSelect').value = avatarType;
-            loadAvatarModel(avatarType);
+            document.getElementById('avatarSelect').value = avatarUrl;
+            loadAvatarModel(avatarUrl);
+            
+            // Set appropriate expression based on scenario
+            setTimeout(() => {
+                const complaint = (currentScenario['Chief Complaint'] || '').toLowerCase();
+                if (complaint.includes('pain') || complaint.includes('ache')) {
+                    setAvatarExpression('concerned');
+                } else if (complaint.includes('happy') || complaint.includes('better')) {
+                    setAvatarExpression('happy');
+                } else if (complaint.includes('sad') || complaint.includes('depressed')) {
+                    setAvatarExpression('sad');
+                } else {
+                    setAvatarExpression('neutral');
+                }
+            }, 2000); // Wait for avatar to load
         }
         
         function selectRandomScenario() {
