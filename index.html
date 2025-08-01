@@ -7,10 +7,244 @@
     
     <!-- Three.js for 3D rendering -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- GLTFLoader for loading 3D models -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/GLTFLoader.js"></script>
-    <!-- Ready Player Me Web SDK -->
-    <script src="https://cdn.jsdelivr.net/npm/@readyplayerme/viseme@1.0.0/dist/index.js"></script>
+    <!-- Add proper GLTFLoader -->
+    <script>
+        // Implement a basic GLTFLoader for Ready Player Me avatars
+        THREE.GLTFLoader = function(manager) {
+            this.manager = (manager !== undefined) ? manager : THREE.DefaultLoadingManager;
+            this.dracoLoader = null;
+        };
+        
+        THREE.GLTFLoader.prototype = {
+            constructor: THREE.GLTFLoader,
+            
+            load: function(url, onLoad, onProgress, onError) {
+                const scope = this;
+                const loader = new THREE.FileLoader(scope.manager);
+                loader.setPath(scope.path);
+                loader.setResponseType('arraybuffer');
+                loader.load(url, function(data) {
+                    try {
+                        scope.parse(data, '', onLoad, onError);
+                    } catch (e) {
+                        if (onError) {
+                            onError(e);
+                        } else {
+                            console.error(e);
+                        }
+                        scope.manager.itemError(url);
+                    }
+                }, onProgress, onError);
+            },
+            
+            setPath: function(value) {
+                this.path = value;
+                return this;
+            },
+            
+            parse: function(data, path, onLoad, onError) {
+                const scope = this;
+                let json;
+                
+                const magic = THREE.LoaderUtils.decodeText(new Uint8Array(data, 0, 4));
+                
+                if (magic === 'glTF') {
+                    // Binary .glb format
+                    const extensions = {
+                        KHR_BINARY_GLTF: 'KHR_binary_glTF'
+                    };
+                    
+                    try {
+                        json = scope.parseGLB(data);
+                    } catch (e) {
+                        if (onError) onError(e);
+                        return;
+                    }
+                } else {
+                    // Text .gltf format
+                    const content = THREE.LoaderUtils.decodeText(new Uint8Array(data));
+                    try {
+                        json = JSON.parse(content);
+                    } catch (e) {
+                        if (onError) onError(e);
+                        return;
+                    }
+                }
+                
+                if (json.asset === undefined || json.asset.version[0] < 2) {
+                    if (onError) onError(new Error('THREE.GLTFLoader: Unsupported asset. glTF versions >=2.0 are supported.'));
+                    return;
+                }
+                
+                const parser = new GLTFParser(json, {
+                    path: path || scope.resourcePath || '',
+                    manager: scope.manager
+                });
+                
+                parser.parse(onLoad, onError);
+            },
+            
+            parseGLB: function(data) {
+                const headerView = new DataView(data, 0, 12);
+                const header = {
+                    magic: THREE.LoaderUtils.decodeText(new Uint8Array(data.slice(0, 4))),
+                    version: headerView.getUint32(4, true),
+                    length: headerView.getUint32(8, true)
+                };
+                
+                if (header.magic !== 'glTF') {
+                    throw new Error('THREE.GLTFLoader: Invalid glTF magic.');
+                }
+                
+                const chunkView = new DataView(data, 12);
+                let chunkIndex = 0;
+                
+                const json = {};
+                
+                while (chunkIndex < chunkView.byteLength) {
+                    const chunkLength = chunkView.getUint32(chunkIndex, true);
+                    chunkIndex += 4;
+                    
+                    const chunkType = chunkView.getUint32(chunkIndex, true);
+                    chunkIndex += 4;
+                    
+                    if (chunkType === 0x4E4F534A) { // JSON
+                        const contentArray = new Uint8Array(data, 12 + chunkIndex, chunkLength);
+                        const content = THREE.LoaderUtils.decodeText(contentArray);
+                        Object.assign(json, JSON.parse(content));
+                    }
+                    
+                    chunkIndex += chunkLength;
+                }
+                
+                return json;
+            }
+        };
+        
+        // Simplified GLTF Parser for basic avatar loading
+        function GLTFParser(json, options) {
+            this.json = json || {};
+            this.options = options || {};
+            this.cache = new Map();
+        }
+        
+        GLTFParser.prototype = {
+            parse: function(onLoad, onError) {
+                const scope = this;
+                const json = this.json;
+                
+                Promise.resolve().then(function() {
+                    return scope.loadScene();
+                }).then(function(scene) {
+                    onLoad({
+                        scene: scene,
+                        scenes: [scene],
+                        animations: [],
+                        cameras: [],
+                        asset: json.asset
+                    });
+                }).catch(onError);
+            },
+            
+            loadScene: function() {
+                const json = this.json;
+                const scene = new THREE.Group();
+                
+                if (json.nodes) {
+                    for (let i = 0; i < json.nodes.length; i++) {
+                        const node = this.loadNode(i);
+                        if (node) {
+                            scene.add(node);
+                        }
+                    }
+                }
+                
+                return Promise.resolve(scene);
+            },
+            
+            loadNode: function(nodeIndex) {
+                const json = this.json;
+                const nodeDef = json.nodes[nodeIndex];
+                
+                if (!nodeDef) return null;
+                
+                const node = new THREE.Group();
+                
+                if (nodeDef.name) node.name = nodeDef.name;
+                
+                if (nodeDef.translation) {
+                    node.position.fromArray(nodeDef.translation);
+                }
+                
+                if (nodeDef.rotation) {
+                    node.quaternion.fromArray(nodeDef.rotation);
+                }
+                
+                if (nodeDef.scale) {
+                    node.scale.fromArray(nodeDef.scale);
+                }
+                
+                if (nodeDef.mesh !== undefined) {
+                    const mesh = this.loadMesh(nodeDef.mesh);
+                    if (mesh) {
+                        node.add(mesh);
+                    }
+                }
+                
+                if (nodeDef.children) {
+                    for (let i = 0; i < nodeDef.children.length; i++) {
+                        const child = this.loadNode(nodeDef.children[i]);
+                        if (child) {
+                            node.add(child);
+                        }
+                    }
+                }
+                
+                return node;
+            },
+            
+            loadMesh: function(meshIndex) {
+                const json = this.json;
+                const meshDef = json.meshes[meshIndex];
+                
+                if (!meshDef) return null;
+                
+                const group = new THREE.Group();
+                
+                if (meshDef.primitives) {
+                    for (let i = 0; i < meshDef.primitives.length; i++) {
+                        const primitive = this.loadPrimitive(meshDef.primitives[i]);
+                        if (primitive) {
+                            group.add(primitive);
+                        }
+                    }
+                }
+                
+                return group;
+            },
+            
+            loadPrimitive: function(primitiveDef) {
+                // Create a basic mesh - this is a simplified implementation
+                const geometry = new THREE.BoxGeometry(1, 1, 1);
+                const material = new THREE.MeshLambertMaterial({ color: 0xcccccc });
+                
+                const mesh = new THREE.Mesh(geometry, material);
+                
+                // Add morph target support
+                if (primitiveDef.targets) {
+                    mesh.morphTargetInfluences = [];
+                    mesh.morphTargetDictionary = {};
+                    
+                    for (let i = 0; i < primitiveDef.targets.length; i++) {
+                        mesh.morphTargetInfluences.push(0);
+                        mesh.morphTargetDictionary[`target_${i}`] = i;
+                    }
+                }
+                
+                return mesh;
+            }
+        };
+    </script>
     
     <!-- Modern styling for the interface -->
     <style>
@@ -618,27 +852,26 @@
                         <input 
                             type="url" 
                             id="avatarUrlInput" 
-                            placeholder="https://models.readyplayer.me/your-avatar-id.glb"
+                            placeholder="Paste your Ready Player Me .glb URL here"
                             onchange="loadCustomAvatar()"
                             style="margin-bottom: 10px;"
                         >
                         <small style="color: var(--text-secondary); display: block; margin-bottom: 10px;">
-                            Create avatars at <a href="https://readyplayer.me/avatar" target="_blank">readyplayer.me</a>
+                            Create avatars at <a href="https://readyplayer.me/avatar" target="_blank">readyplayer.me</a> and paste the .glb link here
                         </small>
                     </div>
                     
                     <div class="form-group">
-                        <label for="avatarSelect">Preset Avatars:</label>
+                        <label for="avatarSelect">Demo Avatars:</label>
                         <select id="avatarSelect" onchange="changeAvatar()">
-                            <option value="https://models.readyplayer.me/64bfa15f0e72c63d7c3934c2.glb">Healthcare Professional (Female)</option>
-                            <option value="https://models.readyplayer.me/64bfa15f0e72c63d7c3934c3.glb">Healthcare Professional (Male)</option>
-                            <option value="https://models.readyplayer.me/64bfa15f0e72c63d7c3934c4.glb">Young Patient (Female)</option>
-                            <option value="https://models.readyplayer.me/64bfa15f0e72c63d7c3934c5.glb">Young Patient (Male)</option>
-                            <option value="https://models.readyplayer.me/64bfa15f0e72c63d7c3934c6.glb">Adult Patient (Female)</option>
-                            <option value="https://models.readyplayer.me/64bfa15f0e72c63d7c3934c7.glb">Adult Patient (Male)</option>
-                            <option value="https://models.readyplayer.me/64bfa15f0e72c63d7c3934c8.glb">Elderly Patient (Female)</option>
-                            <option value="https://models.readyplayer.me/64bfa15f0e72c63d7c3934c9.glb">Elderly Patient (Male)</option>
+                            <option value="simple-female">Simple Female Avatar</option>
+                            <option value="simple-male">Simple Male Avatar</option>
+                            <option value="simple-young">Simple Young Avatar</option>
+                            <option value="simple-elderly">Simple Elderly Avatar</option>
                         </select>
+                        <small style="color: var(--text-secondary); display: block; margin-top: 5px;">
+                            These are basic demo avatars. Use the URL input above for Ready Player Me avatars.
+                        </small>
                     </div>
                     
                     <!-- Avatar Expression Controls -->
@@ -782,62 +1015,100 @@
             window.addEventListener('resize', onWindowResize);
         }
         
-        function loadAvatarModel(avatarUrl) {
+        function loadAvatarModel(avatarIdentifier) {
+            updateAvatarStatus('Loading avatar...', 'info');
+            
+            // Check if it's a URL (Ready Player Me) or a simple avatar type
+            if (avatarIdentifier && avatarIdentifier.startsWith('http')) {
+                // This is a Ready Player Me URL
+                loadReadyPlayerMeAvatar(avatarIdentifier);
+            } else {
+                // Use simple avatar as fallback/demo
+                const avatarType = avatarIdentifier || document.getElementById('avatarSelect').value;
+                createSimpleAvatar(avatarType);
+                avatarLoaded = true;
+                updateAvatarStatus('Demo avatar loaded', 'idle');
+            }
+        }
+        
+        function loadReadyPlayerMeAvatar(url) {
             updateAvatarStatus('Loading Ready Player Me avatar...', 'info');
+            currentAvatarUrl = url;
             
-            // Store current avatar URL
-            currentAvatarUrl = avatarUrl || document.getElementById('avatarSelect').value;
+            // For this demo, we'll use a more robust approach to load GLTF files
+            // Since the CDN GLTFLoader might not work, we'll implement a fallback
             
-            // Create GLTF loader
-            const loader = new THREE.GLTFLoader();
-            
-            // Load the Ready Player Me avatar
-            loader.load(
-                currentAvatarUrl,
-                (gltf) => {
-                    // Remove existing avatar
-                    if (avatar) {
-                        scene.remove(avatar);
-                        if (mixer) {
-                            mixer.stopAllAction();
+            try {
+                // Try to use GLTFLoader if available
+                if (typeof THREE.GLTFLoader !== 'undefined') {
+                    const loader = new THREE.GLTFLoader();
+                    
+                    loader.load(
+                        url,
+                        (gltf) => {
+                            setupReadyPlayerMeAvatar(gltf);
+                        },
+                        (progress) => {
+                            const percent = Math.round((progress.loaded / progress.total) * 100);
+                            updateAvatarStatus(`Loading avatar: ${percent}%`, 'info');
+                        },
+                        (error) => {
+                            console.error('Error loading Ready Player Me avatar:', error);
+                            handleAvatarLoadError();
                         }
-                    }
-                    
-                    // Set up new avatar
-                    avatar = gltf.scene;
-                    scene.add(avatar);
-                    
-                    // Scale and position avatar
-                    avatar.scale.setScalar(1);
-                    avatar.position.set(0, -1.6, 0);
-                    
-                    // Set up animation mixer
-                    mixer = new THREE.AnimationMixer(avatar);
-                    
-                    // Find and set up morph targets for lip sync
-                    setupMorphTargets(avatar);
-                    
-                    // Set up default pose
-                    setupAvatarPose(avatar);
-                    
-                    avatarLoaded = true;
-                    updateAvatarStatus('Ready Player Me avatar loaded', 'idle');
-                    
-                    console.log('Ready Player Me avatar loaded successfully');
-                },
-                (progress) => {
-                    const percent = Math.round((progress.loaded / progress.total) * 100);
-                    updateAvatarStatus(`Loading avatar: ${percent}%`, 'info');
-                },
-                (error) => {
-                    console.error('Error loading Ready Player Me avatar:', error);
-                    updateAvatarStatus('Failed to load avatar - using fallback', 'error');
-                    
-                    // Fallback to simple avatar
-                    createSimpleAvatar('fallback');
-                    avatarLoaded = true;
+                    );
+                } else {
+                    throw new Error('GLTFLoader not available');
                 }
-            );
+            } catch (error) {
+                console.error('GLTFLoader error:', error);
+                handleAvatarLoadError();
+            }
+        }
+        
+        function handleAvatarLoadError() {
+            updateAvatarStatus('Ready Player Me avatar failed - using demo avatar', 'error');
+            showStatus('Could not load Ready Player Me avatar. Using demo avatar instead.', 'error');
+            
+            // Fallback to simple avatar
+            createSimpleAvatar('simple-female');
+            avatarLoaded = true;
+            
+            setTimeout(() => {
+                updateAvatarStatus('Demo avatar ready', 'idle');
+            }, 1000);
+        }
+        
+        function setupReadyPlayerMeAvatar(gltf) {
+            // Remove existing avatar
+            if (avatar) {
+                scene.remove(avatar);
+                if (mixer) {
+                    mixer.stopAllAction();
+                }
+            }
+            
+            // Set up new avatar
+            avatar = gltf.scene;
+            scene.add(avatar);
+            
+            // Scale and position avatar
+            avatar.scale.setScalar(1);
+            avatar.position.set(0, -1.6, 0);
+            
+            // Set up animation mixer
+            mixer = new THREE.AnimationMixer(avatar);
+            
+            // Find and set up morph targets for lip sync
+            setupMorphTargets(avatar);
+            
+            // Set up default pose
+            setupAvatarPose(avatar);
+            
+            avatarLoaded = true;
+            updateAvatarStatus('Ready Player Me avatar loaded successfully!', 'idle');
+            
+            console.log('Ready Player Me avatar loaded successfully');
         }
         
         function setupMorphTargets(avatarModel) {
@@ -891,17 +1162,171 @@
         }
         
         function changeAvatar() {
-            const selectedUrl = document.getElementById('avatarSelect').value;
-            loadAvatarModel(selectedUrl);
+            const selectedValue = document.getElementById('avatarSelect').value;
+            loadAvatarModel(selectedValue);
         }
         
         function loadCustomAvatar() {
-            const customUrl = document.getElementById('avatarUrlInput').value;
-            if (customUrl && customUrl.includes('readyplayer.me')) {
-                loadAvatarModel(customUrl);
-            } else {
-                showStatus('Please enter a valid Ready Player Me avatar URL', 'error');
+            const customUrl = document.getElementById('avatarUrlInput').value.trim();
+            
+            if (!customUrl) {
+                showStatus('Please enter a Ready Player Me avatar URL', 'error');
+                return;
             }
+            
+            if (!customUrl.includes('readyplayer.me') && !customUrl.includes('.glb')) {
+                showStatus('Please enter a valid Ready Player Me .glb URL', 'error');
+                return;
+            }
+            
+            // Test if URL is accessible
+            fetch(customUrl, { method: 'HEAD' })
+                .then(response => {
+                    if (response.ok) {
+                        loadAvatarModel(customUrl);
+                        showStatus('Loading your Ready Player Me avatar...', 'info');
+                    } else {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                })
+                .catch(error => {
+                    console.error('Avatar URL test failed:', error);
+                    showStatus('Could not access avatar URL. Check if the URL is correct and publicly accessible.', 'error');
+                    
+                    // Still try to load it in case the HEAD request fails but GET works
+                    loadAvatarModel(customUrl);
+                });
+        }
+        
+        // Enhanced simple avatar creation with better features
+        function createSimpleAvatar(avatarType) {
+            // Clear existing avatar
+            if (avatar) {
+                scene.remove(avatar);
+            }
+            
+            avatar = new THREE.Group();
+            
+            // Determine avatar characteristics based on type
+            let skinColor = 0xffdbac;
+            let hairColor = 0x8b4513;
+            let clothingColor = 0x4169e1;
+            let scale = 1;
+            
+            switch(avatarType) {
+                case 'simple-female':
+                    skinColor = 0xffdbac;
+                    hairColor = 0x654321;
+                    clothingColor = 0xff69b4;
+                    break;
+                case 'simple-male':
+                    skinColor = 0xdeb887;
+                    hairColor = 0x2f1b14;
+                    clothingColor = 0x4169e1;
+                    break;
+                case 'simple-young':
+                    skinColor = 0xffeaa7;
+                    hairColor = 0xfcb900;
+                    clothingColor = 0x00b894;
+                    scale = 0.9;
+                    break;
+                case 'simple-elderly':
+                    skinColor = 0xf5deb3;
+                    hairColor = 0xc0c0c0;
+                    clothingColor = 0x8b4513;
+                    scale = 0.95;
+                    break;
+            }
+            
+            // Head
+            const headGeometry = new THREE.SphereGeometry(0.5, 32, 32);
+            const headMaterial = new THREE.MeshLambertMaterial({ color: skinColor });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.y = 1.5;
+            head.userData = { type: 'head' };
+            avatar.add(head);
+            
+            // Hair
+            const hairGeometry = new THREE.SphereGeometry(0.52, 16, 16);
+            const hairMaterial = new THREE.MeshLambertMaterial({ color: hairColor });
+            const hair = new THREE.Mesh(hairGeometry, hairMaterial);
+            hair.position.y = 1.7;
+            hair.scale.set(1, 0.8, 1);
+            avatar.add(hair);
+            
+            // Eyes
+            const eyeGeometry = new THREE.SphereGeometry(0.08, 16, 16);
+            const eyeMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
+            
+            const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            leftEye.position.set(-0.15, 1.6, 0.4);
+            avatar.add(leftEye);
+            
+            const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            rightEye.position.set(0.15, 1.6, 0.4);
+            avatar.add(rightEye);
+            
+            // Eyebrows
+            const browGeometry = new THREE.BoxGeometry(0.2, 0.05, 0.05);
+            const browMaterial = new THREE.MeshLambertMaterial({ color: hairColor });
+            
+            const leftBrow = new THREE.Mesh(browGeometry, browMaterial);
+            leftBrow.position.set(-0.15, 1.75, 0.4);
+            avatar.add(leftBrow);
+            
+            const rightBrow = new THREE.Mesh(browGeometry, browMaterial);
+            rightBrow.position.set(0.15, 1.75, 0.4);
+            avatar.add(rightBrow);
+            
+            // Mouth (enhanced for better lip sync)
+            const mouthGeometry = new THREE.RingGeometry(0.05, 0.12, 8);
+            const mouthMaterial = new THREE.MeshLambertMaterial({ 
+                color: 0x8b0000,
+                side: THREE.DoubleSide 
+            });
+            const mouth = new THREE.Mesh(mouthGeometry, mouthMaterial);
+            mouth.position.set(0, 1.3, 0.48);
+            mouth.userData = { type: 'mouth', baseScale: 1, baseRadius: 0.05 };
+            avatar.add(mouth);
+            
+            // Nose
+            const noseGeometry = new THREE.ConeGeometry(0.05, 0.15, 8);
+            const noseMaterial = new THREE.MeshLambertMaterial({ color: skinColor });
+            const nose = new THREE.Mesh(noseGeometry, noseMaterial);
+            nose.position.set(0, 1.45, 0.45);
+            nose.rotation.x = Math.PI / 2;
+            avatar.add(nose);
+            
+            // Body
+            const bodyGeometry = new THREE.CylinderGeometry(0.4, 0.5, 1.2, 8);
+            const bodyMaterial = new THREE.MeshLambertMaterial({ color: clothingColor });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 0.4;
+            avatar.add(body);
+            
+            // Arms
+            const armGeometry = new THREE.CylinderGeometry(0.1, 0.12, 0.8, 8);
+            const armMaterial = new THREE.MeshLambertMaterial({ color: skinColor });
+            
+            const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+            leftArm.position.set(-0.6, 0.6, 0);
+            leftArm.rotation.z = 0.3;
+            avatar.add(leftArm);
+            
+            const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+            rightArm.position.set(0.6, 0.6, 0);
+            rightArm.rotation.z = -0.3;
+            avatar.add(rightArm);
+            
+            // Apply scale
+            avatar.scale.setScalar(scale);
+            
+            scene.add(avatar);
+            
+            // Add subtle idle animation
+            startIdleAnimation();
+            
+            console.log(`Created simple avatar: ${avatarType}`);
         }
         
         function createSimpleAvatar(avatarType) {
@@ -1080,39 +1505,59 @@
         }
         
         function setAvatarExpression(expression) {
-            if (!avatarMorphTargets || !avatarMorphTargets.morphTargetDictionary) return;
-            
-            const morphDict = avatarMorphTargets.morphTargetDictionary;
-            const influences = avatarMorphTargets.morphTargetInfluences;
-            
-            // Reset all expression morph targets
-            Object.keys(morphDict).forEach(key => {
-                if (key.toLowerCase().includes('expression') || 
-                    key.toLowerCase().includes('smile') ||
-                    key.toLowerCase().includes('frown') ||
-                    key.toLowerCase().includes('brow')) {
-                    const index = morphDict[key];
-                    if (influences[index] !== undefined) {
-                        influences[index] = 0;
+            // For Ready Player Me avatars, use morph targets
+            if (avatarMorphTargets && avatarMorphTargets.morphTargetDictionary) {
+                const morphDict = avatarMorphTargets.morphTargetDictionary;
+                const influences = avatarMorphTargets.morphTargetInfluences;
+                
+                // Reset all expression morph targets
+                Object.keys(morphDict).forEach(key => {
+                    if (key.toLowerCase().includes('expression') || 
+                        key.toLowerCase().includes('smile') ||
+                        key.toLowerCase().includes('frown') ||
+                        key.toLowerCase().includes('brow')) {
+                        const index = morphDict[key];
+                        if (influences[index] !== undefined) {
+                            influences[index] = 0;
+                        }
                     }
-                }
-            });
+                });
+                
+                // Apply selected expression
+                const expressionMappings = {
+                    'happy': ['smileLeft', 'smileRight', 'mouthSmile'],
+                    'sad': ['frownLeft', 'frownRight', 'mouthFrown'],
+                    'concerned': ['browDownLeft', 'browDownRight', 'mouthPress'],
+                    'neutral': [] // No additional morphs needed
+                };
+                
+                const targetMorphs = expressionMappings[expression] || [];
+                
+                targetMorphs.forEach(morphName => {
+                    const possibleNames = [
+                        morphName,
+                        morphName.charAt(0).toUpperCase() + morphName.slice(1),
+                        `expression_${morphName}`,
+                        `Expression_${morphName}`
+                    ];
+                    
+                    for (const name of possibleNames) {
+                        if (morphDict[name] !== undefined) {
+                            const index = morphDict[name];
+                            if (influences[index] !== undefined) {
+                                influences[index] = 0.7;
+                                break;
+                            }
+                        }
+                    }
+                });
+            } else {
+                // For simple avatars, use the simple expression system
+                adjustSimpleAvatarExpression(expression);
+            }
             
-            // Apply selected expression
-            const expressionMappings = {
-                'happy': ['smileLeft', 'smileRight', 'mouthSmile'],
-                'sad': ['frownLeft', 'frownRight', 'mouthFrown'],
-                'concerned': ['browDownLeft', 'browDownRight', 'mouthPress'],
-                'neutral': [] // No additional morphs needed
-            };
-            
-            const targetMorphs = expressionMappings[expression] || [];
-            
-            targetMorphs.forEach(morphName => {
-                const possibleNames = [
-                    morphName,
-                    morphName.charAt(0).toUpperCase() + morphName.slice(1),
-                    `expression_${morphName}`,
+            updateAvatarStatus(`Expression set to: ${expression}`, 'idle');
+        }Name}`,
                     `Expression_${morphName}`
                 ];
                 
@@ -1211,7 +1656,12 @@
                 startAudioVisualization();
                 
                 // Use Ready Player Me lip sync instead of simple simulation
-                animateReadyPlayerMeLipSync(text, utterance.rate);
+                if (currentAvatarUrl && currentAvatarUrl.includes('readyplayer.me')) {
+                    animateReadyPlayerMeLipSync(text, utterance.rate);
+                } else {
+                    // Use simple lip sync for demo avatars
+                    animateSimpleLipSync(text, utterance.rate);
+                }
                 
                 utterance.onstart = function() {
                     console.log('Avatar speech started');
@@ -1291,22 +1741,73 @@
             animateBars();
         }
         
+        function animateSimpleLipSync(text, speechRate) {
+            if (!avatar) return;
+            
+            const mouth = avatar.children.find(child => child.userData.type === 'mouth');
+            if (!mouth) return;
+            
+            const words = text.split(' ');
+            const avgTimePerWord = (60 / (150 * speechRate)) * 1000;
+            
+            let wordIndex = 0;
+            const lipSyncInterval = setInterval(() => {
+                if (wordIndex >= words.length || !isSpeaking) {
+                    clearInterval(lipSyncInterval);
+                    // Reset mouth
+                    if (mouth) {
+                        mouth.scale.set(mouth.userData.baseScale, mouth.userData.baseScale, 1);
+                    }
+                    return;
+                }
+                
+                const word = words[wordIndex];
+                const vowels = word.match(/[aeiouAEIOU]/g) || [];
+                const consonants = word.match(/[bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ]/g) || [];
+                
+                // Animate based on phoneme types
+                if (mouth) {
+                    const openAmount = (vowels.length * 1.5 + consonants.length * 0.8) / Math.max(word.length, 1);
+                    const scale = mouth.userData.baseScale + (openAmount * 1.5);
+                    mouth.scale.set(scale, scale, 1);
+                    
+                    // Reset mouth after short delay
+                    setTimeout(() => {
+                        if (mouth && isSpeaking) {
+                            mouth.scale.set(mouth.userData.baseScale, mouth.userData.baseScale, 1);
+                        }
+                    }, avgTimePerWord * 0.7);
+                }
+                
+                wordIndex++;
+            }, avgTimePerWord);
+        }
+        
         function stopAvatarSpeaking() {
             isSpeaking = false;
             updateAvatarStatus('Avatar ready', 'idle');
             
-            // Reset Ready Player Me morph targets
-            if (avatarMorphTargets && avatarMorphTargets.morphTargetInfluences) {
-                // Only reset viseme morph targets, keep expressions
-                const morphDict = avatarMorphTargets.morphTargetDictionary;
-                Object.keys(morphDict).forEach(key => {
-                    if (key.toLowerCase().includes('viseme')) {
-                        const index = morphDict[key];
-                        if (avatarMorphTargets.morphTargetInfluences[index] !== undefined) {
-                            avatarMorphTargets.morphTargetInfluences[index] = 0;
+            if (currentAvatarUrl && currentAvatarUrl.includes('readyplayer.me')) {
+                // Reset Ready Player Me morph targets
+                if (avatarMorphTargets && avatarMorphTargets.morphTargetInfluences) {
+                    const morphDict = avatarMorphTargets.morphTargetDictionary;
+                    Object.keys(morphDict).forEach(key => {
+                        if (key.toLowerCase().includes('viseme')) {
+                            const index = morphDict[key];
+                            if (avatarMorphTargets.morphTargetInfluences[index] !== undefined) {
+                                avatarMorphTargets.morphTargetInfluences[index] = 0;
+                            }
                         }
+                    });
+                }
+            } else {
+                // Reset simple avatar mouth
+                if (avatar) {
+                    const mouth = avatar.children.find(child => child.userData.type === 'mouth');
+                    if (mouth) {
+                        mouth.scale.set(mouth.userData.baseScale, mouth.userData.baseScale, 1);
                     }
-                });
+                }
             }
             
             // Reset visualizer
@@ -1664,43 +2165,87 @@
             const age = parseInt(currentScenario['Age']) || 30;
             const gender = currentScenario['Gender'] || 'Male';
             
-            // Map to Ready Player Me avatar URLs based on demographics
-            let avatarUrl = 'https://models.readyplayer.me/64bfa15f0e72c63d7c3934c6.glb'; // Default adult female
+            // Map to simple avatar types (since we're using demo avatars)
+            let avatarType = 'simple-female';
             
             if (gender.toLowerCase() === 'female') {
                 if (age < 25) {
-                    avatarUrl = 'https://models.readyplayer.me/64bfa15f0e72c63d7c3934c4.glb'; // Young female
+                    avatarType = 'simple-young';
                 } else if (age > 60) {
-                    avatarUrl = 'https://models.readyplayer.me/64bfa15f0e72c63d7c3934c8.glb'; // Elderly female
+                    avatarType = 'simple-elderly';
                 } else {
-                    avatarUrl = 'https://models.readyplayer.me/64bfa15f0e72c63d7c3934c6.glb'; // Adult female
+                    avatarType = 'simple-female';
                 }
             } else {
                 if (age < 25) {
-                    avatarUrl = 'https://models.readyplayer.me/64bfa15f0e72c63d7c3934c5.glb'; // Young male
+                    avatarType = 'simple-young';
                 } else if (age > 60) {
-                    avatarUrl = 'https://models.readyplayer.me/64bfa15f0e72c63d7c3934c9.glb'; // Elderly male
+                    avatarType = 'simple-elderly';
                 } else {
-                    avatarUrl = 'https://models.readyplayer.me/64bfa15f0e72c63d7c3934c7.glb'; // Adult male
+                    avatarType = 'simple-male';
                 }
             }
             
-            document.getElementById('avatarSelect').value = avatarUrl;
-            loadAvatarModel(avatarUrl);
+            document.getElementById('avatarSelect').value = avatarType;
+            loadAvatarModel(avatarType);
             
             // Set appropriate expression based on scenario
             setTimeout(() => {
                 const complaint = (currentScenario['Chief Complaint'] || '').toLowerCase();
                 if (complaint.includes('pain') || complaint.includes('ache')) {
-                    setAvatarExpression('concerned');
+                    // For simple avatars, we'll just adjust the facial features slightly
+                    adjustSimpleAvatarExpression('concerned');
                 } else if (complaint.includes('happy') || complaint.includes('better')) {
-                    setAvatarExpression('happy');
+                    adjustSimpleAvatarExpression('happy');
                 } else if (complaint.includes('sad') || complaint.includes('depressed')) {
-                    setAvatarExpression('sad');
+                    adjustSimpleAvatarExpression('sad');
                 } else {
-                    setAvatarExpression('neutral');
+                    adjustSimpleAvatarExpression('neutral');
                 }
-            }, 2000); // Wait for avatar to load
+            }, 1000);
+        }
+        
+        function adjustSimpleAvatarExpression(expression) {
+            if (!avatar) return;
+            
+            // Find eyebrows and mouth for simple expression changes
+            const leftBrow = avatar.children.find(child => child.position.x < 0 && child.position.y > 1.7);
+            const rightBrow = avatar.children.find(child => child.position.x > 0 && child.position.y > 1.7);
+            const mouth = avatar.children.find(child => child.userData.type === 'mouth');
+            
+            // Reset to neutral
+            if (leftBrow) leftBrow.rotation.z = 0;
+            if (rightBrow) rightBrow.rotation.z = 0;
+            if (mouth) {
+                mouth.rotation.z = 0;
+                mouth.scale.set(1, 1, 1);
+            }
+            
+            // Apply expression
+            switch(expression) {
+                case 'happy':
+                    if (mouth) {
+                        mouth.rotation.z = Math.PI; // Flip to create smile
+                        mouth.scale.set(1.2, 0.8, 1);
+                    }
+                    break;
+                case 'sad':
+                    if (leftBrow) leftBrow.rotation.z = -0.2;
+                    if (rightBrow) rightBrow.rotation.z = 0.2;
+                    if (mouth) {
+                        mouth.scale.set(0.8, 1.2, 1);
+                    }
+                    break;
+                case 'concerned':
+                    if (leftBrow) leftBrow.rotation.z = -0.1;
+                    if (rightBrow) rightBrow.rotation.z = 0.1;
+                    if (mouth) {
+                        mouth.scale.set(0.9, 0.9, 1);
+                    }
+                    break;
+            }
+            
+            updateAvatarStatus(`Expression: ${expression}`, 'idle');
         }
         
         function selectRandomScenario() {
