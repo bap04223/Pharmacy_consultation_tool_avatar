@@ -381,6 +381,42 @@
             animation: spin 1s ease-in-out infinite;
             margin-right: 8px;
         }
+
+        /* Debug panel styling */
+        .debug-panel {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .debug-panel h4 {
+            margin-bottom: 10px;
+            color: #495057;
+        }
+
+        .debug-log {
+            max-height: 200px;
+            overflow-y: auto;
+            background: white;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            padding: 8px;
+        }
+
+        .debug-log div {
+            margin-bottom: 3px;
+            padding: 2px 0;
+            border-bottom: 1px solid #f8f9fa;
+        }
+
+        .debug-log .error { color: #dc3545; }
+        .debug-log .success { color: #28a745; }
+        .debug-log .info { color: #17a2b8; }
+        .debug-log .warning { color: #ffc107; }
     </style>
 </head>
 <body>
@@ -568,6 +604,30 @@
                     >
                         🎵 Preview Avatar & Voice
                     </button>
+
+                    <!-- Debug panel -->
+                    <div class="debug-panel">
+                        <h4>🔍 Debug Information</h4>
+                        <div><strong>D-ID Status:</strong> <span id="debugDIDStatus">Not initialized</span></div>
+                        <div><strong>API Key:</strong> <span id="debugAPIKey">Not set</span></div>
+                        <div><strong>Avatar URL:</strong> <span id="debugAvatarURL">Default</span></div>
+                        <div><strong>Voice Config:</strong> <span id="debugVoiceConfig">Default</span></div>
+                        <div><strong>Preview Button:</strong> <span id="debugPreviewButton">Disabled</span></div>
+                        
+                        <h4 style="margin-top: 15px;">📋 Activity Log</h4>
+                        <div class="debug-log" id="debugLog">
+                            <div class="info">Debug panel initialized</div>
+                        </div>
+                        
+                        <button 
+                            type="button"
+                            class="btn-warning" 
+                            onclick="clearDebugLog()" 
+                            style="margin-top: 10px; width: 100%; font-size: 12px; padding: 5px;"
+                        >
+                            Clear Log
+                        </button>
+                    </div>
                 </div>
             </div>
             
@@ -691,10 +751,42 @@
             'david': 'https://clips-presenters.d-id.com/david/image.png',
             'emma': 'https://clips-presenters.d-id.com/emma/image.png'
         };
+
+        // Debug logging function
+        function debugLog(message, type = 'info') {
+            console.log(`[DEBUG] ${message}`);
+            const debugLogElement = document.getElementById('debugLog');
+            if (debugLogElement) {
+                const logEntry = document.createElement('div');
+                logEntry.className = type;
+                logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                debugLogElement.appendChild(logEntry);
+                debugLogElement.scrollTop = debugLogElement.scrollHeight;
+            }
+        }
+
+        function clearDebugLog() {
+            const debugLogElement = document.getElementById('debugLog');
+            if (debugLogElement) {
+                debugLogElement.innerHTML = '<div class="info">Debug log cleared</div>';
+            }
+        }
+
+        function updateDebugInfo() {
+            try {
+                document.getElementById('debugDIDStatus').textContent = isAvatarInitialized ? 'Initialized' : 'Not initialized';
+                document.getElementById('debugAPIKey').textContent = didApiKey ? `Set (${didApiKey.substring(0, 8)}...)` : 'Not set';
+                document.getElementById('debugAvatarURL').textContent = selectedAvatarUrl;
+                document.getElementById('debugVoiceConfig').textContent = JSON.stringify(selectedVoiceConfig);
+                document.getElementById('debugPreviewButton').textContent = document.getElementById('previewButton').disabled ? 'Disabled' : 'Enabled';
+            } catch (error) {
+                debugLog(`Error updating debug info: ${error.message}`, 'error');
+            }
+        }
         
         // Initialization
         window.onload = function() {
-            console.log('Application starting...');
+            debugLog('Application starting...', 'info');
             generateSessionId();
             initializeSpeechRecognition();
             setupEventListeners();
@@ -702,17 +794,19 @@
             displaySessionInfo();
             
             avatarVideo = document.getElementById('avatarVideo');
+            debugLog(`Avatar video element found: ${avatarVideo ? 'Yes' : 'No'}`, avatarVideo ? 'success' : 'error');
             
             // Better D-ID SDK detection
             setTimeout(() => {
                 if (window.didSDKLoaded && typeof DID !== 'undefined') {
-                    console.log('D-ID SDK loaded successfully');
+                    debugLog('D-ID SDK loaded successfully', 'success');
                     updateAvatarStatus('D-ID SDK ready - Enter API key to initialize', 'info');
                 } else {
-                    console.log('Using D-ID REST API fallback');
+                    debugLog('Using D-ID REST API fallback', 'warning');
                     window.didUseFallback = true;
                     updateAvatarStatus('D-ID ready (REST API) - Enter API key to initialize', 'info');
                 }
+                updateDebugInfo();
             }, 1000);
         };
         
@@ -720,7 +814,7 @@
             const timestamp = Date.now();
             const randomStr = Math.random().toString(36).substring(2, 15);
             sessionId = `session_${timestamp}_${randomStr}`;
-            console.log('New session started:', sessionId);
+            debugLog(`New session started: ${sessionId}`, 'info');
         }
         
         function displaySessionInfo() {
@@ -737,12 +831,16 @@
             document.getElementById('webhookUrl').addEventListener('change', saveConfig);
             document.getElementById('submitWebhookUrl').addEventListener('change', saveConfig);
             document.getElementById('sheetId').addEventListener('change', saveConfig);
-            document.getElementById('didApiKey').addEventListener('change', saveConfig);
+            document.getElementById('didApiKey').addEventListener('change', function() {
+                debugLog('API key changed', 'info');
+                saveConfig();
+                updateDebugInfo();
+            });
         }
         
-        // Avatar and voice selection functions - FIXED
+        // Avatar and voice selection functions - ENHANCED
         function updateSelectedAvatar() {
-            console.log('updateSelectedAvatar called');
+            debugLog('Avatar selection changed', 'info');
             const avatarSelect = document.getElementById('avatarSelect');
             const customDiv = document.getElementById('customAvatarDiv');
             const customUrl = document.getElementById('customAvatarUrl');
@@ -755,12 +853,13 @@
                 selectedAvatarUrl = avatarUrls[avatarSelect.value] || avatarUrls['amy'];
             }
             
-            console.log('Selected avatar URL:', selectedAvatarUrl);
+            debugLog(`Selected avatar URL: ${selectedAvatarUrl}`, 'info');
             saveConfig();
+            updateDebugInfo();
         }
 
         function updateSelectedVoice() {
-            console.log('updateSelectedVoice called');
+            debugLog('Voice selection changed', 'info');
             const voiceSelect = document.getElementById('voiceSelect');
             const elevenlabsDiv = document.getElementById('elevenlabsVoiceDiv');
             
@@ -773,22 +872,22 @@
                 selectedVoiceConfig = { type: provider, voice_id: voiceId };
             }
             
-            console.log('Selected voice config:', selectedVoiceConfig);
+            debugLog(`Selected voice config: ${JSON.stringify(selectedVoiceConfig)}`, 'info');
             saveConfig();
+            updateDebugInfo();
         }
 
-        // Load ElevenLabs voices for avatar - FIXED
+        // Load ElevenLabs voices for avatar - ENHANCED
         async function loadElevenLabsVoices2() {
-            console.log('loadElevenLabsVoices2 called');
+            debugLog('Loading ElevenLabs voices', 'info');
             const apiKey = document.getElementById('elevenlabsApiKey2').value;
             
             if (!apiKey) {
-                console.log('No ElevenLabs API key provided');
+                debugLog('No ElevenLabs API key provided', 'warning');
                 return;
             }
             
             try {
-                console.log('Loading ElevenLabs voices...');
                 const response = await fetch('https://api.elevenlabs.io/v1/voices', {
                     method: 'GET',
                     headers: {
@@ -803,7 +902,7 @@
                 
                 const data = await response.json();
                 elevenlabsVoices2 = data.voices;
-                console.log('ElevenLabs voices loaded:', elevenlabsVoices2.length);
+                debugLog(`ElevenLabs voices loaded: ${elevenlabsVoices2.length}`, 'success');
                 
                 const voiceSelect = document.getElementById('elevenlabsVoiceSelect');
                 voiceSelect.innerHTML = '<option value="">Select a voice...</option>';
@@ -820,46 +919,114 @@
                 voiceSelect.onchange = function() {
                     if (this.value) {
                         selectedVoiceConfig.voice_id = this.value;
-                        console.log('ElevenLabs voice updated:', selectedVoiceConfig);
+                        debugLog(`ElevenLabs voice updated: ${selectedVoiceConfig.voice_id}`, 'info');
                         saveConfig();
+                        updateDebugInfo();
                     }
                 };
                 
             } catch (error) {
-                console.error('Error loading ElevenLabs voices:', error);
+                debugLog(`Error loading ElevenLabs voices: ${error.message}`, 'error');
                 showStatus('Error loading ElevenLabs voices', 'error');
             }
         }
 
-        // Preview avatar and voice - FIXED
+        // Preview avatar and voice - FIXED with better error handling
         async function previewAvatarVoice() {
-            console.log('previewAvatarVoice called');
-            console.log('isAvatarInitialized:', isAvatarInitialized);
-            console.log('didApiKey:', didApiKey ? 'Present' : 'Missing');
+            debugLog('Preview avatar voice called', 'info');
+            debugLog(`Initialization status: ${isAvatarInitialized}`, 'info');
+            debugLog(`API key present: ${didApiKey ? 'Yes' : 'No'}`, 'info');
             
             if (!isAvatarInitialized) {
-                showStatus('Please initialize D-ID first', 'error');
+                const errorMsg = 'Please initialize D-ID first';
+                debugLog(errorMsg, 'error');
+                showStatus(errorMsg, 'error');
                 return;
             }
             
             const previewText = "Hello! I'm your AI patient for today's consultation. How can I help you practice your pharmacy skills?";
             
-            console.log('Starting preview with text:', previewText);
+            debugLog(`Starting preview with text: ${previewText}`, 'info');
             updateAvatarStatus('Generating preview...', 'loading');
+            updateDebugInfo();
             
             try {
                 await speakWithAvatar(previewText);
+                debugLog('Preview completed successfully', 'success');
             } catch (error) {
-                console.error('Preview error:', error);
-                updateAvatarStatus('Preview failed: ' + error.message, 'error');
-                showStatus('Preview failed: ' + error.message, 'error');
+                debugLog(`Preview error: ${error.message}`, 'error');
+                updateAvatarStatus('Preview failed', 'error');
+                showStatus(`Preview failed: ${error.message}`, 'error');
+                
+                // Try a simpler approach if the main one fails
+                if (error.message.includes('500') || error.message.includes('circular')) {
+                    debugLog('Attempting simpler API call...', 'warning');
+                    try {
+                        await createSimpleTalk(previewText);
+                    } catch (simpleError) {
+                        debugLog(`Simple approach also failed: ${simpleError.message}`, 'error');
+                    }
+                }
             }
         }
 
-        // D-ID initialization - FIXED
+        // Simplified talk creation for fallback
+        async function createSimpleTalk(text) {
+            try {
+                debugLog('Trying simplified talk creation', 'info');
+                
+                const simplePayload = {
+                    script: {
+                        type: 'text',
+                        input: text,
+                        provider: {
+                            type: 'microsoft',
+                            voice_id: 'sara'
+                        }
+                    },
+                    source_url: 'https://clips-presenters.d-id.com/amy/image.png'
+                };
+
+                debugLog(`Simple payload: ${JSON.stringify(simplePayload)}`, 'info');
+
+                const response = await fetch('https://api.d-id.com/talks', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Basic ${didApiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(simplePayload)
+                });
+
+                debugLog(`Simple API response: ${response.status}`, response.ok ? 'success' : 'error');
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    debugLog(`Simple API error: ${errorText}`, 'error');
+                    throw new Error(`Simple API failed: ${response.status}`);
+                }
+
+                const result = await response.json();
+                debugLog(`Simple talk created: ${result.id}`, 'success');
+                
+                // Wait for completion and play
+                const videoUrl = await waitForTalkCompletion(result.id);
+                if (videoUrl) {
+                    await playAvatarVideo(videoUrl);
+                }
+                
+                return result;
+                
+            } catch (error) {
+                debugLog(`Simple talk creation failed: ${error.message}`, 'error');
+                throw error;
+            }
+        }
+
+        // D-ID initialization - ENHANCED
         async function initializeDID() {
             try {
-                console.log('Initializing D-ID...');
+                debugLog('Initializing D-ID...', 'info');
                 updateAvatarStatus('Initializing D-ID...', 'loading');
                 
                 didApiKey = document.getElementById('didApiKey').value.trim();
@@ -875,7 +1042,7 @@
                 }
                 
                 // Test the API key by making a simple request
-                console.log('Testing D-ID API connection...');
+                debugLog('Testing D-ID API connection...', 'info');
                 await testDIDConnection();
                 
                 // Initialize client object for REST API
@@ -885,7 +1052,7 @@
                     method: 'rest'
                 };
                 
-                console.log('D-ID initialized successfully');
+                debugLog('D-ID initialized successfully', 'success');
                 isAvatarInitialized = true;
                 updateAvatarStatus('Avatar initialized successfully', 'success');
                 
@@ -893,16 +1060,17 @@
                 const previewButton = document.getElementById('previewButton');
                 if (previewButton) {
                     previewButton.disabled = false;
-                    console.log('Preview button enabled');
+                    debugLog('Preview button enabled', 'success');
                 } else {
-                    console.error('Preview button not found');
+                    debugLog('Preview button not found', 'error');
                 }
                 
                 showStatus('D-ID avatar initialized successfully!', 'success');
+                updateDebugInfo();
                 return true;
                 
             } catch (error) {
-                console.error('D-ID initialization error:', error);
+                debugLog(`D-ID initialization error: ${error.message}`, 'error');
                 updateAvatarStatus(`Error: ${error.message}`, 'error');
                 showStatus(`D-ID initialization failed: ${error.message}`, 'error');
                 isAvatarInitialized = false;
@@ -913,16 +1081,19 @@
                     previewButton.disabled = true;
                 }
                 
+                updateDebugInfo();
                 return false;
             }
         }
 
-        // Test D-ID API connection - FIXED
+        // Test D-ID API connection - ENHANCED
         async function testDIDConnection() {
             try {
-                console.log('Testing D-ID API with key:', didApiKey.substring(0, 10) + '...');
+                debugLog(`Testing D-ID API connection...`, 'info');
+                debugLog(`API key format: ${didApiKey.substring(0, 10)}...`, 'info');
                 
-                const response = await fetch('https://api.d-id.com/talks', {
+                // First try a simple GET request to check authentication
+                const response = await fetch('https://api.d-id.com/talks?limit=1', {
                     method: 'GET',
                     headers: {
                         'Authorization': `Basic ${didApiKey}`,
@@ -930,40 +1101,44 @@
                     }
                 });
                 
-                console.log('API test response status:', response.status);
+                debugLog(`API test response status: ${response.status}`, response.ok ? 'success' : 'error');
                 
                 if (!response.ok) {
                     const errorText = await response.text();
-                    console.error('API test error response:', errorText);
+                    debugLog(`API test error: ${errorText}`, 'error');
                     
                     if (response.status === 401) {
                         throw new Error('Invalid API key - check your D-ID credentials');
                     } else if (response.status === 403) {
                         throw new Error('API key does not have required permissions');
+                    } else if (response.status === 429) {
+                        throw new Error('API rate limit exceeded - please wait and try again');
                     } else {
-                        throw new Error(`API test failed with status ${response.status}: ${errorText}`);
+                        throw new Error(`API test failed with status ${response.status}`);
                     }
                 }
                 
-                console.log('D-ID API connection test successful');
+                const data = await response.json();
+                debugLog(`API test successful. Available talks: ${data.talks ? data.talks.length : 0}`, 'success');
                 return true;
+                
             } catch (error) {
-                console.error('D-ID API connection test failed:', error);
+                debugLog(`API connection test failed: ${error.message}`, 'error');
                 throw new Error(`API connection failed: ${error.message}`);
             }
         }
 
-        // Speak with avatar - FIXED
+        // Speak with avatar - ENHANCED
         async function speakWithAvatar(text) {
             if (!isAvatarInitialized || !didApiKey) {
-                console.log('Avatar not initialized, skipping speech');
+                debugLog('Avatar not initialized, skipping speech', 'error');
                 throw new Error('Avatar not initialized');
             }
 
             try {
-                console.log('Generating avatar speech for:', text);
-                console.log('Using avatar URL:', selectedAvatarUrl);
-                console.log('Using voice config:', selectedVoiceConfig);
+                debugLog(`Generating avatar speech for: ${text}`, 'info');
+                debugLog(`Using avatar URL: ${selectedAvatarUrl}`, 'info');
+                debugLog(`Using voice config: ${JSON.stringify(selectedVoiceConfig)}`, 'info');
                 
                 updateAvatarStatus('Generating avatar speech...', 'loading');
 
@@ -971,25 +1146,25 @@
                 const talkResponse = await createTalk(text);
                 
                 if (talkResponse && talkResponse.id) {
-                    console.log('Talk created successfully with ID:', talkResponse.id);
+                    debugLog(`Talk created successfully with ID: ${talkResponse.id}`, 'success');
                     
                     // Wait for video generation to complete
                     const videoUrl = await waitForTalkCompletion(talkResponse.id);
                     
                     if (videoUrl) {
-                        console.log('Video URL received:', videoUrl);
+                        debugLog(`Video URL received: ${videoUrl}`, 'success');
                         // Play the generated video
                         await playAvatarVideo(videoUrl);
                     } else {
                         throw new Error('No video URL received');
                     }
                 } else {
-                    console.error('Invalid talk response:', talkResponse);
+                    debugLog(`Invalid talk response: ${JSON.stringify(talkResponse)}`, 'error');
                     throw new Error('Failed to create talk - invalid response');
                 }
 
             } catch (error) {
-                console.error('Avatar speech error:', error);
+                debugLog(`Avatar speech error: ${error.message}`, 'error');
                 updateAvatarStatus(`Speech error: ${error.message}`, 'error');
                 
                 // Reset status after a delay
@@ -1001,65 +1176,53 @@
             }
         }
 
-        // Create a new talk using D-ID REST API - FIXED
+        // Create a new talk using D-ID REST API - FIXED for 500 error
         async function createTalk(text) {
             try {
-                console.log('Creating talk with text:', text);
+                debugLog(`Creating talk with text: ${text}`, 'info');
                 
-                // Prepare voice configuration based on selection
-                let scriptConfig = {
-                    type: 'text',
-                    input: text.trim()
-                };
-
-                // Add voice provider based on selection
-                if (selectedVoiceConfig.type === 'elevenlabs') {
-                    const elevenlabsVoiceId = document.getElementById('elevenlabsVoiceSelect').value;
-                    const elevenlabsApiKey = document.getElementById('elevenlabsApiKey2').value;
-                    
-                    if (elevenlabsVoiceId && elevenlabsApiKey) {
-                        scriptConfig.provider = {
-                            type: 'elevenlabs',
-                            voice_id: elevenlabsVoiceId
-                        };
-                        // Note: ElevenLabs API key should be handled separately in your backend
-                        console.log('Using ElevenLabs voice:', elevenlabsVoiceId);
-                    } else {
-                        // Fallback to Microsoft if ElevenLabs not properly configured
-                        console.log('ElevenLabs not properly configured, falling back to Microsoft');
-                        scriptConfig.provider = {
-                            type: 'microsoft',
-                            voice_id: 'sara'
-                        };
-                    }
-                } else {
-                    // Use Microsoft voices
-                    scriptConfig.provider = {
-                        type: selectedVoiceConfig.type,
-                        voice_id: selectedVoiceConfig.voice_id
-                    };
-                    console.log('Using Microsoft voice:', selectedVoiceConfig.voice_id);
-                }
-
+                // Simplified payload structure to avoid circular reference issues
                 const payload = {
-                    script: scriptConfig,
+                    script: {
+                        type: 'text',
+                        subtitles: 'false',
+                        provider: {
+                            type: selectedVoiceConfig.type,
+                            voice_id: selectedVoiceConfig.voice_id
+                        },
+                        ssml: 'false',
+                        input: text.trim()
+                    },
                     config: {
-                        fluent: true,
-                        pad_audio: 0.0,
-                        driver_expressions: {
-                            expressions: [
-                                {
-                                    start_frame: 0,
-                                    expression: 'neutral',
-                                    intensity: 1.0
-                                }
-                            ]
-                        }
+                        fluent: 'false',
+                        pad_audio: '0.0'
                     },
                     source_url: selectedAvatarUrl
                 };
 
-                console.log('Creating talk with payload:', JSON.stringify(payload, null, 2));
+                // Handle ElevenLabs voices differently if selected
+                if (selectedVoiceConfig.type === 'elevenlabs') {
+                    const elevenlabsVoiceId = document.getElementById('elevenlabsVoiceSelect').value;
+                    
+                    if (elevenlabsVoiceId) {
+                        payload.script.provider = {
+                            type: 'elevenlabs',
+                            voice_id: elevenlabsVoiceId
+                        };
+                        debugLog(`Using ElevenLabs voice: ${elevenlabsVoiceId}`, 'info');
+                    } else {
+                        // Fallback to Microsoft
+                        payload.script.provider = {
+                            type: 'microsoft',
+                            voice_id: 'sara'
+                        };
+                        debugLog('ElevenLabs not configured, falling back to Microsoft Sara', 'warning');
+                    }
+                } else {
+                    debugLog(`Using Microsoft voice: ${selectedVoiceConfig.voice_id}`, 'info');
+                }
+
+                debugLog(`Payload: ${JSON.stringify(payload, null, 2)}`, 'info');
 
                 const response = await fetch('https://api.d-id.com/talks', {
                     method: 'POST',
@@ -1070,13 +1233,15 @@
                     body: JSON.stringify(payload)
                 });
 
-                console.log('Create talk response status:', response.status);
+                debugLog(`API response status: ${response.status}`, response.ok ? 'success' : 'error');
 
                 if (!response.ok) {
                     const errorText = await response.text();
-                    console.error('D-ID API error response:', errorText);
+                    debugLog(`API error response: ${errorText}`, 'error');
                     
                     let errorMessage = `API request failed: ${response.status}`;
+                    
+                    // Try to extract meaningful error message
                     try {
                         const errorJson = JSON.parse(errorText);
                         if (errorJson.error) {
@@ -1085,30 +1250,36 @@
                             errorMessage = errorJson.message;
                         }
                     } catch (e) {
-                        errorMessage += ` - ${errorText}`;
+                        // If it's HTML error page, extract readable text
+                        if (errorText.includes('<pre>')) {
+                            const match = errorText.match(/<pre>(.*?)<\/pre>/s);
+                            if (match) {
+                                errorMessage = match[1].replace(/&.*?;/g, '').trim();
+                            }
+                        }
                     }
                     
                     throw new Error(errorMessage);
                 }
 
                 const result = await response.json();
-                console.log('Talk creation response:', result);
+                debugLog(`Talk created successfully with ID: ${result.id}`, 'success');
                 return result;
 
             } catch (error) {
-                console.error('Error creating talk:', error);
+                debugLog(`Error creating talk: ${error.message}`, 'error');
                 throw error;
             }
         }
 
-        // Wait for talk generation to complete - FIXED
+        // Wait for talk generation to complete - ENHANCED
         async function waitForTalkCompletion(talkId) {
             const maxAttempts = 30; // Maximum 30 attempts (60 seconds)
             const pollInterval = 2000; // Poll every 2 seconds
 
             for (let attempt = 0; attempt < maxAttempts; attempt++) {
                 try {
-                    console.log(`Checking talk status (attempt ${attempt + 1}/${maxAttempts})`);
+                    debugLog(`Checking talk status (attempt ${attempt + 1}/${maxAttempts})`, 'info');
                     updateAvatarStatus(`Generating video... (${attempt + 1}/${maxAttempts})`, 'loading');
 
                     const response = await fetch(`https://api.d-id.com/talks/${talkId}`, {
@@ -1121,31 +1292,29 @@
 
                     if (!response.ok) {
                         const errorText = await response.text();
-                        console.error(`Status check failed (${response.status}):`, errorText);
+                        debugLog(`Status check failed (${response.status}): ${errorText}`, 'error');
                         throw new Error(`Status check failed: ${response.status} - ${errorText}`);
                     }
 
                     const result = await response.json();
-                    console.log('Talk status check result:', result);
+                    debugLog(`Talk status: ${result.status}`, 'info');
 
                     if (result.status === 'done' && result.result_url) {
-                        console.log('Video generation completed:', result.result_url);
+                        debugLog(`Video generation completed: ${result.result_url}`, 'success');
                         return result.result_url;
                     } else if (result.status === 'error') {
                         const errorMsg = result.error || 'Video generation failed';
-                        console.error('Video generation error:', errorMsg);
+                        debugLog(`Video generation error: ${errorMsg}`, 'error');
                         throw new Error(`Video generation failed: ${errorMsg}`);
                     } else if (result.status === 'rejected') {
                         throw new Error('Video generation was rejected');
                     }
-                    
-                    console.log(`Talk status: ${result.status}, waiting...`);
 
                     // Wait before next poll
                     await new Promise(resolve => setTimeout(resolve, pollInterval));
 
                 } catch (error) {
-                    console.error(`Error checking talk status (attempt ${attempt + 1}):`, error);
+                    debugLog(`Error checking talk status (attempt ${attempt + 1}): ${error.message}`, 'error');
                     
                     if (attempt === maxAttempts - 1) {
                         throw new Error('Video generation timeout - maximum attempts reached');
@@ -1159,10 +1328,10 @@
             throw new Error('Video generation timeout - maximum attempts reached');
         }
 
-        // Play the generated avatar video - FIXED
+        // Play the generated avatar video - ENHANCED
         async function playAvatarVideo(videoUrl) {
             try {
-                console.log('Playing avatar video:', videoUrl);
+                debugLog(`Playing avatar video: ${videoUrl}`, 'info');
                 updateAvatarStatus('Loading video...', 'loading');
 
                 // Set video source and load
@@ -1174,18 +1343,18 @@
                 // Wait for video to be ready and play
                 return new Promise((resolve, reject) => {
                     const onLoadedData = () => {
-                        console.log('Video loaded, starting playback');
+                        debugLog('Video loaded, starting playback', 'success');
                         updateAvatarStatus('Playing avatar video...', 'playing');
                         
                         avatarVideo.play()
                             .then(() => {
-                                console.log('Video playback started successfully');
+                                debugLog('Video playback started successfully', 'success');
                                 resolve();
                             })
                             .catch((error) => {
-                                console.error('Play failed:', error);
+                                debugLog(`Play failed: ${error.message}`, 'error');
                                 if (error.name === 'NotAllowedError') {
-                                    console.log('Autoplay blocked, user interaction required');
+                                    debugLog('Autoplay blocked, user interaction required', 'warning');
                                     updateAvatarStatus('Click video to play with audio', 'info');
                                     resolve(); // Don't reject, just inform user
                                 } else {
@@ -1195,7 +1364,7 @@
                     };
 
                     const onEnded = () => {
-                        console.log('Video playback completed');
+                        debugLog('Video playback completed', 'success');
                         updateAvatarStatus('Avatar ready', 'info');
                         // Clean up event listeners
                         avatarVideo.removeEventListener('loadeddata', onLoadedData);
@@ -1204,7 +1373,7 @@
                     };
 
                     const onError = (error) => {
-                        console.error('Video playback error:', error);
+                        debugLog(`Video playback error: ${error}`, 'error');
                         updateAvatarStatus('Video playback error', 'error');
                         // Clean up event listeners
                         avatarVideo.removeEventListener('loadeddata', onLoadedData);
@@ -1228,7 +1397,7 @@
                 });
 
             } catch (error) {
-                console.error('Error playing avatar video:', error);
+                debugLog(`Error playing avatar video: ${error.message}`, 'error');
                 updateAvatarStatus('Playback error: ' + error.message, 'error');
                 throw error;
             }
@@ -1240,9 +1409,9 @@
             if (statusElement) {
                 statusElement.textContent = message;
                 statusElement.className = `avatar-status ${type}`;
-                console.log('Avatar status updated:', message, type);
+                debugLog(`Avatar status: ${message} (${type})`, 'info');
             } else {
-                console.error('Avatar status element not found');
+                debugLog('Avatar status element not found', 'error');
             }
         }
 
@@ -1510,51 +1679,199 @@
                 elevenlabsVoice: document.getElementById('elevenlabsVoiceSelect').value
             };
             localStorage.setItem('pharmacyChatConfig', JSON.stringify(config));
+            debugLog('Configuration saved', 'info');
         }
         
         function loadSavedConfig() {
             const saved = localStorage.getItem('pharmacyChatConfig');
             if (saved) {
-                const config = JSON.parse(saved);
-                document.getElementById('webhookUrl').value = config.webhookUrl || '';
-                document.getElementById('submitWebhookUrl').value = config.submitWebhookUrl || '';
-                document.getElementById('sheetId').value = config.sheetId || '';
-                document.getElementById('didApiKey').value = config.didApiKey || '';
-                
-                if (config.selectedAvatar) {
-                    document.getElementById('avatarSelect').value = config.selectedAvatar;
-                    updateSelectedAvatar();
-                }
-                
-                if (config.customAvatarUrl) {
-                    document.getElementById('customAvatarUrl').value = config.customAvatarUrl;
-                }
-                
-                if (config.selectedVoice) {
-                    document.getElementById('voiceSelect').value = config.selectedVoice;
-                    updateSelectedVoice();
-                }
-                
-                if (config.elevenlabsApiKey2) {
-                    document.getElementById('elevenlabsApiKey2').value = config.elevenlabsApiKey2;
-                }
-                
-                if (config.elevenlabsVoice) {
-                    document.getElementById('elevenlabsVoiceSelect').value = config.elevenlabsVoice;
-                }
-                
-                const sheetNameDropdown = document.getElementById('sheetName');
-                if (config.sheetName) {
-                    if (sheetNameDropdown.options.length > 1) {
-                        sheetNameDropdown.value = config.sheetName;
+                try {
+                    const config = JSON.parse(saved);
+                    document.getElementById('webhookUrl').value = config.webhookUrl || '';
+                    document.getElementById('submitWebhookUrl').value = config.submitWebhookUrl || '';
+                    document.getElementById('sheetId').value = config.sheetId || '';
+                    document.getElementById('didApiKey').value = config.didApiKey || '';
+                    
+                    if (config.selectedAvatar) {
+                        document.getElementById('avatarSelect').value = config.selectedAvatar;
+                        updateSelectedAvatar();
                     }
+                    
+                    if (config.customAvatarUrl) {
+                        document.getElementById('customAvatarUrl').value = config.customAvatarUrl;
+                    }
+                    
+                    if (config.selectedVoice) {
+                        document.getElementById('voiceSelect').value = config.selectedVoice;
+                        updateSelectedVoice();
+                    }
+                    
+                    if (config.elevenlabsApiKey2) {
+                        document.getElementById('elevenlabsApiKey2').value = config.elevenlabsApiKey2;
+                    }
+                    
+                    if (config.elevenlabsVoice) {
+                        document.getElementById('elevenlabsVoiceSelect').value = config.elevenlabsVoice;
+                    }
+                    
+                    const sheetNameDropdown = document.getElementById('sheetName');
+                    if (config.sheetName) {
+                        if (sheetNameDropdown.options.length > 1) {
+                            sheetNameDropdown.value = config.sheetName;
+                        }
+                    }
+                    
+                    debugLog('Configuration loaded successfully', 'success');
+                } catch (error) {
+                    debugLog(`Error loading configuration: ${error.message}`, 'error');
                 }
             }
         }
 
-        // Google Sheets functions (simplified placeholders)
+        // Google Sheets functions (you can implement these later)
         async function loadSheetNames() {
-            showStatus('Google Sheets integration would go here', 'info');
+            const sheetId = document.getElementById('sheetId').value;
+            
+            if (!sheetId) {
+                showStatus('Please enter Sheet ID first', 'error');
+                return;
+            }
+            
+            showStatus('Loading sheet names...', 'info');
+            debugLog('Google Sheets integration placeholder called', 'info');
+            
+            try {
+                // NOTE: Replace with your actual Google Sheets API key
+                const apiKey = 'YOUR_GOOGLE_SHEETS_API_KEY'; // REPLACE THIS!
+                
+                const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets.properties.title&key=${apiKey}`;
+                
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                const sheetNames = data.sheets.map(sheet => sheet.properties.title);
+                
+                populateSheetNameDropdown(sheetNames);
+                showStatus(`Found ${sheetNames.length} sheets`, 'success');
+                debugLog(`Loaded ${sheetNames.length} sheet names`, 'success');
+                
+            } catch (error) {
+                console.error('Error loading sheet names:', error);
+                showStatus('Could not load sheet names automatically. This is a placeholder.', 'error');
+                debugLog(`Sheet loading error: ${error.message}`, 'error');
+                
+                // Enable manual entry as fallback
+                const select = document.getElementById('sheetName');
+                select.disabled = false;
+                select.innerHTML = '<option value="">Enter sheet name manually...</option>';
+            }
+        }
+
+        function populateSheetNameDropdown(sheetNames) {
+            const select = document.getElementById('sheetName');
+            select.innerHTML = '<option value="">Select a sheet...</option>';
+            select.disabled = false;
+            
+            sheetNames.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                select.appendChild(option);
+            });
+            
+            select.addEventListener('change', function() {
+                if (this.value) {
+                    saveConfig();
+                    loadSheetData();
+                }
+            });
+        }
+
+        async function loadSheetData() {
+            const sheetId = document.getElementById('sheetId').value;
+            const sheetName = getSelectedSheetName();
+            
+            if (!sheetId || !sheetName) {
+                showStatus('Please enter Sheet ID and select Sheet Name', 'error');
+                return;
+            }
+            
+            showStatus(`Loading data from sheet: ${sheetName}...`, 'info');
+            debugLog(`Loading sheet data: ${sheetName}`, 'info');
+            
+            try {
+                // NOTE: Replace with your actual Google Sheets API key
+                const apiKey = 'YOUR_GOOGLE_SHEETS_API_KEY'; // REPLACE THIS!
+                
+                const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(sheetName)}?key=${apiKey}`;
+                
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.values && data.values.length > 0) {
+                    sheetData = data.values;
+                    populateScenarioDropdown();
+                    showStatus(`Loaded ${data.values.length - 1} scenarios from ${sheetName}`, 'success');
+                    debugLog(`Loaded ${data.values.length - 1} scenarios`, 'success');
+                } else {
+                    showStatus('No data found in the selected sheet', 'error');
+                    debugLog('No data found in sheet', 'error');
+                }
+                
+            } catch (error) {
+                console.error('Error loading sheet:', error);
+                showStatus('Error loading sheet data. This is a placeholder.', 'error');
+                debugLog(`Sheet data loading error: ${error.message}`, 'error');
+            }
+        }
+
+        function populateScenarioDropdown() {
+            const select = document.getElementById('scenarioSelect');
+            select.innerHTML = '<option value="">Select a scenario...</option>';
+            select.disabled = false;
+            
+            for (let i = 1; i < sheetData.length; i++) {
+                const row = sheetData[i];
+                const option = document.createElement('option');
+                option.value = i;
+                option.textContent = `${i}. ${row[0]}`;
+                select.appendChild(option);
+            }
+            
+            select.removeEventListener('change', handleScenarioChange);
+            select.addEventListener('change', handleScenarioChange);
+        }
+
+        function handleScenarioChange(e) {
+            if (e.target.value) {
+                selectScenario(parseInt(e.target.value));
+            }
+        }
+
+        function selectScenario(rowIndex) {
+            const headers = sheetData[0];
+            const row = sheetData[rowIndex];
+            
+            currentScenario = {};
+            headers.forEach((header, index) => {
+                currentScenario[header] = row[index];
+            });
+            
+            console.log('Selected scenario:', currentScenario);
+            showStatus(`Scenario loaded: ${currentScenario['Patient Name'] || currentScenario['Scenario Name'] || 'Unknown'}`, 'success');
+            debugLog(`Scenario selected: ${JSON.stringify(currentScenario)}`, 'success');
+            
+            clearChat();
+            addMessage('Scenario loaded. Hold the talk button to start the consultation.', 'ai');
         }
 
         function getSelectedSheetName() {
@@ -1562,19 +1879,165 @@
         }
 
         function selectRandomScenario() {
-            showStatus('Random scenario selection would go here', 'info');
+            if (sheetData.length <= 1) {
+                showStatus('Please load sheet data first', 'error');
+                debugLog('No sheet data available for random selection', 'error');
+                return;
+            }
+            
+            const randomIndex = Math.floor(Math.random() * (sheetData.length - 1)) + 1;
+            document.getElementById('scenarioSelect').value = randomIndex;
+            selectScenario(randomIndex);
+            
+            showStatus(`Randomly selected: ${sheetData[randomIndex][0]}`, 'success');
+            debugLog(`Random scenario selected: ${randomIndex}`, 'info');
         }
 
         async function submitConversation() {
-            showStatus('Conversation submission would go here', 'info');
+            const submitWebhookUrl = document.getElementById('submitWebhookUrl').value;
+            
+            if (!submitWebhookUrl) {
+                showStatus('Submit webhook URL not configured', 'error');
+                return;
+            }
+            
+            if (conversationHistory.length === 0) {
+                showStatus('No conversation to submit', 'error');
+                return;
+            }
+            
+            showStatus('Submitting conversation...', 'info');
+            debugLog('Submitting conversation for evaluation', 'info');
+            
+            addMessage('📤 Submitting conversation for evaluation...', 'system');
+            
+            try {
+                const submissionPayload = {
+                    sessionId: sessionId,
+                    scenario: currentScenario,
+                    conversationHistory: conversationHistory,
+                    submissionTime: new Date().toISOString(),
+                    sessionInfo: {
+                        sessionStartTime: new Date(parseInt(sessionId.split('_')[1])).toISOString(),
+                        totalMessages: conversationHistory.length,
+                        userMessages: conversationHistory.filter(h => h.sender === 'user').length,
+                        aiMessages: conversationHistory.filter(h => h.sender === 'ai').length,
+                        duration: Date.now() - parseInt(sessionId.split('_')[1])
+                    }
+                };
+                
+                debugLog(`Submission payload: ${JSON.stringify(submissionPayload)}`, 'info');
+                
+                const response = await fetch(submitWebhookUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                    },
+                    mode: 'cors',
+                    body: JSON.stringify(submissionPayload)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const responseText = await response.text();
+                let feedbackMessage = '';
+                
+                try {
+                    const responseData = JSON.parse(responseText);
+                    feedbackMessage = responseData.feedback || responseData.evaluation || responseData.response || responseData.message || 'Evaluation completed successfully.';
+                } catch (parseError) {
+                    feedbackMessage = responseText || 'Evaluation completed successfully.';
+                }
+                
+                addMessage(`📋 Evaluation Feedback:\n\n${feedbackMessage}`, 'system');
+                showStatus('✅ Conversation submitted and evaluated successfully!', 'success');
+                debugLog('Conversation submitted successfully', 'success');
+                
+            } catch (error) {
+                console.error('Submit conversation error:', error);
+                showStatus(`❌ Submission error: ${error.message}`, 'error');
+                addMessage(`❌ Submission failed: ${error.message}`, 'system');
+                debugLog(`Submission error: ${error.message}`, 'error');
+            }
         }
 
         function exportConversation() {
-            showStatus('Export functionality would go here', 'info');
+            if (conversationHistory.length === 0) {
+                showStatus('No conversation to export', 'error');
+                return;
+            }
+            
+            try {
+                let exportText = '';
+                
+                exportText += '='.repeat(60) + '\n';
+                exportText += 'PHARMACY CONSULTATION TRAINING - CONVERSATION EXPORT\n';
+                exportText += '='.repeat(60) + '\n\n';
+                
+                exportText += `Session ID: ${sessionId}\n`;
+                exportText += `Export Date: ${new Date().toLocaleString()}\n\n`;
+                
+                if (currentScenario) {
+                    exportText += 'SCENARIO DETAILS:\n';
+                    exportText += '-'.repeat(20) + '\n';
+                    Object.keys(currentScenario).forEach(key => {
+                        if (currentScenario[key] && currentScenario[key].toString().trim() !== '') {
+                            exportText += `${key}: ${currentScenario[key]}\n`;
+                        }
+                    });
+                    exportText += '\n';
+                }
+                
+                exportText += 'CONVERSATION:\n';
+                exportText += '-'.repeat(20) + '\n\n';
+                
+                conversationHistory.forEach((message, index) => {
+                    const speaker = message.sender === 'user' ? 'STUDENT' : 'AI PATIENT';
+                    exportText += `${speaker}:\n`;
+                    exportText += `  ${message.message}\n\n`;
+                });
+                
+                exportText += '='.repeat(60) + '\n';
+                exportText += 'End of Conversation Export\n';
+                exportText += '='.repeat(60) + '\n';
+                
+                const blob = new Blob([exportText], { type: 'text/plain;charset=utf-8' });
+                const url = window.URL.createObjectURL(blob);
+                
+                const downloadLink = document.createElement('a');
+                downloadLink.href = url;
+                
+                const now = new Date();
+                const dateStr = now.toISOString().split('T')[0];
+                const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
+                const scenarioName = currentScenario && currentScenario['Scenario Name'] 
+                    ? currentScenario['Scenario Name'].replace(/[^a-zA-Z0-9]/g, '_') 
+                    : 'Unknown_Scenario';
+                
+                downloadLink.download = `Pharmacy_Training_${scenarioName}_${dateStr}_${timeStr}.txt`;
+                
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+                
+                window.URL.revokeObjectURL(url);
+                
+                showStatus('✅ Conversation exported successfully!', 'success');
+                debugLog('Conversation exported successfully', 'success');
+                
+            } catch (error) {
+                console.error('Export error:', error);
+                showStatus(`❌ Export failed: ${error.message}`, 'error');
+                debugLog(`Export error: ${error.message}`, 'error');
+            }
         }
     </script>
 </body>
 </html>
+
 
 
 
