@@ -1184,6 +1184,11 @@
                 console.log('Avatars loaded successfully:', avatars.length);
                 updateAvatarStatus('Avatars loaded', 'success');
                 
+                // Restore saved selections after loading
+                setTimeout(() => {
+                    restoreUISelections();
+                }, 100);
+                
             } catch (error) {
                 console.error('Error loading avatars:', error);
                 showStatus('Error loading avatars', 'error');
@@ -1316,6 +1321,11 @@
                 
                 console.log('D-ID voices loaded successfully');
                 
+                // Restore saved selections after loading
+                setTimeout(() => {
+                    restoreUISelections();
+                }, 200);
+                
             } catch (error) {
                 console.error('Error loading voices:', error);
                 showStatus('Error loading voices', 'error');
@@ -1327,30 +1337,66 @@
             const provider = document.getElementById('voiceProvider').value;
             const voiceSelect = document.getElementById('voiceSelect');
             
+            console.log('Loading voices for provider:', provider);
+            console.log('Available voices:', availableVoices);
+            
             voiceSelect.innerHTML = '<option value="">Select a voice...</option>';
             
-            if (availableVoices[provider]) {
-                availableVoices[provider].forEach(voice => {
+            if (availableVoices[provider] && availableVoices[provider].length > 0) {
+                console.log(`Found ${availableVoices[provider].length} voices for ${provider}`);
+                
+                availableVoices[provider].forEach((voice, index) => {
                     const option = document.createElement('option');
                     option.value = voice.id;
-                    option.textContent = voice.name;
+                    
+                    // Create a readable name from the voice data
+                    let displayName = voice.name;
+                    if (!displayName) {
+                        // Fallback to creating name from voice data
+                        const voiceName = voice.display_name || voice.voice_id || voice.id;
+                        const gender = voice.gender ? ` (${voice.gender})` : '';
+                        const language = voice.language ? ` - ${voice.language}` : '';
+                        displayName = `${voiceName}${gender}${language}`;
+                    }
+                    
+                    option.textContent = displayName;
                     voiceSelect.appendChild(option);
+                    
+                    // Log first few voices for debugging
+                    if (index < 3) {
+                        console.log(`Voice ${index}:`, voice);
+                    }
                 });
                 
                 // Set default selection based on provider
+                let defaultVoice = '';
                 if (provider === 'microsoft') {
-                    voiceSelect.value = 'en-US-JennyNeural';
-                    selectedVoiceId = 'en-US-JennyNeural';
+                    // Look for Jenny or Aria
+                    const jenny = availableVoices[provider].find(v => v.id.includes('Jenny'));
+                    const aria = availableVoices[provider].find(v => v.id.includes('Aria'));
+                    defaultVoice = jenny ? jenny.id : (aria ? aria.id : availableVoices[provider][0].id);
                 } else if (provider === 'amazon') {
-                    voiceSelect.value = 'Joanna';
-                    selectedVoiceId = 'Joanna';
+                    // Look for Joanna
+                    const joanna = availableVoices[provider].find(v => v.id === 'Joanna');
+                    defaultVoice = joanna ? joanna.id : availableVoices[provider][0].id;
                 } else if (provider === 'elevenlabs') {
-                    voiceSelect.value = 'Rachel';
-                    selectedVoiceId = 'Rachel';
+                    // Look for Rachel
+                    const rachel = availableVoices[provider].find(v => v.id === 'Rachel');
+                    defaultVoice = rachel ? rachel.id : availableVoices[provider][0].id;
+                }
+                
+                if (defaultVoice) {
+                    voiceSelect.value = defaultVoice;
+                    selectedVoiceId = defaultVoice;
+                    console.log('Set default voice:', defaultVoice);
                 }
                 
                 selectedVoiceProvider = provider;
                 onVoiceChange(); // Save the selection
+                
+            } else {
+                console.error('No voices found for provider:', provider);
+                voiceSelect.innerHTML = '<option value="">No voices available for this provider</option>';
             }
         }
         
@@ -1359,33 +1405,44 @@
             const avatarSelect = document.getElementById('avatarSelect');
             const avatarPreview = document.getElementById('avatarPreview');
             
-            if (avatarSelect.value) {
+            console.log('Avatar selection changed to:', avatarSelect.value);
+            
+            if (avatarSelect.value && avatarSelect.value !== '') {
                 selectedAvatarUrl = avatarSelect.value;
                 
                 // Get the thumbnail URL from the selected option
                 const selectedOption = avatarSelect.options[avatarSelect.selectedIndex];
                 const thumbnailUrl = selectedOption.dataset.thumbnail;
                 
-                if (thumbnailUrl) {
+                console.log('Selected avatar ID:', selectedAvatarUrl);
+                console.log('Thumbnail URL:', thumbnailUrl);
+                
+                if (thumbnailUrl && thumbnailUrl !== '') {
                     avatarPreview.src = thumbnailUrl;
                     avatarPreview.style.display = 'block';
+                    avatarPreview.onload = function() {
+                        console.log('Avatar preview loaded successfully');
+                    };
                     avatarPreview.onerror = function() {
                         console.warn('Avatar preview image failed to load:', thumbnailUrl);
                         this.style.display = 'none';
                     };
                 } else {
+                    console.warn('No thumbnail URL found for selected avatar');
                     avatarPreview.style.display = 'none';
                 }
                 
                 saveConfig();
-                console.log('Avatar changed to:', selectedAvatarUrl);
+                console.log('Avatar changed and saved:', selectedAvatarUrl);
             } else {
                 avatarPreview.style.display = 'none';
+                console.log('Avatar selection cleared');
             }
         }
         
         // Handle voice provider change
         function onVoiceProviderChange() {
+            console.log('Voice provider changing...');
             selectedVoiceProvider = document.getElementById('voiceProvider').value;
             loadVoicesForProvider();
             saveConfig();
@@ -1394,7 +1451,8 @@
         
         // Handle voice selection change
         function onVoiceChange() {
-            selectedVoiceId = document.getElementById('voiceSelect').value;
+            const voiceSelect = document.getElementById('voiceSelect');
+            selectedVoiceId = voiceSelect.value;
             saveConfig();
             console.log('Voice changed to:', selectedVoiceId);
         }
@@ -2408,12 +2466,16 @@
                 // Restore avatar and voice settings
                 if (config.selectedAvatarUrl) {
                     selectedAvatarUrl = config.selectedAvatarUrl;
+                    console.log('Restored avatar URL:', selectedAvatarUrl);
                 }
                 if (config.selectedVoiceProvider) {
                     selectedVoiceProvider = config.selectedVoiceProvider;
+                    document.getElementById('voiceProvider').value = selectedVoiceProvider;
+                    console.log('Restored voice provider:', selectedVoiceProvider);
                 }
                 if (config.selectedVoiceId) {
                     selectedVoiceId = config.selectedVoiceId;
+                    console.log('Restored voice ID:', selectedVoiceId);
                 }
                 
                 // Try to set sheet name in dropdown
@@ -2425,6 +2487,46 @@
                     }
                 }
             }
+        }
+        
+        // Function to restore UI selections after loading avatars/voices
+        function restoreUISelections() {
+            console.log('Restoring UI selections...');
+            
+            // Restore avatar selection
+            const avatarSelect = document.getElementById('avatarSelect');
+            if (selectedAvatarUrl && avatarSelect) {
+                // Find the option with matching value
+                for (let i = 0; i < avatarSelect.options.length; i++) {
+                    if (avatarSelect.options[i].value === selectedAvatarUrl) {
+                        avatarSelect.selectedIndex = i;
+                        console.log('Restored avatar selection:', selectedAvatarUrl);
+                        onAvatarChange(); // Update preview
+                        break;
+                    }
+                }
+            }
+            
+            // Restore voice provider selection
+            const voiceProvider = document.getElementById('voiceProvider');
+            if (selectedVoiceProvider && voiceProvider) {
+                voiceProvider.value = selectedVoiceProvider;
+                loadVoicesForProvider(); // This will also restore voice selection
+            }
+            
+            // Restore voice selection after provider is set
+            setTimeout(() => {
+                const voiceSelect = document.getElementById('voiceSelect');
+                if (selectedVoiceId && voiceSelect) {
+                    for (let i = 0; i < voiceSelect.options.length; i++) {
+                        if (voiceSelect.options[i].value === selectedVoiceId) {
+                            voiceSelect.selectedIndex = i;
+                            console.log('Restored voice selection:', selectedVoiceId);
+                            break;
+                        }
+                    }
+                }
+            }, 100);
         }
         
         // Select a random scenario
@@ -2456,5 +2558,6 @@
     </script>
 </body>
 </html>
+
 
 
