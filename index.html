@@ -14,7 +14,90 @@
             script.onload = function() {
                 console.log('D-ID SDK loaded successfully');
                 window.didSDKLoaded = true;
-            };
+            }
+
+        // Test minimal API approach
+        async function testMinimalAPI() {
+            if (!isAvatarInitialized) {
+                debugLog('Avatar not initialized for test', 'error');
+                showStatus('Please initialize D-ID first', 'error');
+                return;
+            }
+
+            debugLog('Testing minimal API approach', 'info');
+            updateAvatarStatus('Testing minimal API...', 'loading');
+
+            try {
+                // Absolutely minimal test
+                const testPayload = {
+                    script: {
+                        type: 'text',
+                        input: 'Hello, this is a test.',
+                        provider: {
+                            type: 'microsoft',
+                            voice_id: 'en-US-JennyNeural'
+                        }
+                    },
+                    source_url: 'https://clips-presenters.d-id.com/amy/image.png'
+                };
+
+                debugLog(`Test payload: ${JSON.stringify(testPayload, null, 2)}`, 'info');
+
+                const response = await fetch('https://api.d-id.com/talks', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Basic ${didApiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(testPayload)
+                });
+
+                debugLog(`Test API response: ${response.status}`, response.ok ? 'success' : 'error');
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    debugLog(`Test API error: ${errorText}`, 'error');
+                    
+                    let errorMessage = 'Test API failed';
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        errorMessage = errorJson.description || errorJson.error || errorMessage;
+                    } catch (e) {
+                        // If HTML error, extract meaningful part
+                        if (errorText.includes('TypeError:')) {
+                            const match = errorText.match(/TypeError: ([^<]+)/);
+                            if (match) {
+                                errorMessage = `TypeError: ${match[1]}`;
+                            }
+                        }
+                    }
+                    
+                    updateAvatarStatus(`Test failed: ${errorMessage}`, 'error');
+                    showStatus(`Test failed: ${errorMessage}`, 'error');
+                    return;
+                }
+
+                const result = await response.json();
+                debugLog(`Test talk created: ${result.id}`, 'success');
+                
+                updateAvatarStatus('Test successful! Generating video...', 'loading');
+                
+                // Wait for completion and play
+                const videoUrl = await waitForTalkCompletion(result.id);
+                if (videoUrl) {
+                    await playAvatarVideo(videoUrl);
+                    debugLog('Test completed successfully', 'success');
+                    showStatus('Test completed successfully!', 'success');
+                } else {
+                    throw new Error('No video URL received in test');
+                }
+
+            } catch (error) {
+                debugLog(`Test error: ${error.message}`, 'error');
+                updateAvatarStatus(`Test error: ${error.message}`, 'error');
+                showStatus(`Test error: ${error.message}`, 'error');
+            }
+        };
             script.onerror = function() {
                 console.warn('Primary D-ID SDK failed, using REST API fallback...');
                 window.didSDKLoaded = false;
@@ -570,12 +653,12 @@
                     <div class="form-group">
                         <label for="voiceSelect">Choose Voice:</label>
                         <select id="voiceSelect" onchange="updateSelectedVoice()">
-                            <option value="microsoft-sara">Sara (Microsoft - Female, Professional)</option>
-                            <option value="microsoft-guy">Guy (Microsoft - Male, Professional)</option>
-                            <option value="microsoft-jenny">Jenny (Microsoft - Female, Friendly)</option>
-                            <option value="microsoft-ryan">Ryan (Microsoft - Male, Clear)</option>
-                            <option value="microsoft-aria">Aria (Microsoft - Female, Natural)</option>
-                            <option value="microsoft-davis">Davis (Microsoft - Male, Deep)</option>
+                            <option value="microsoft-en-US-JennyNeural">Jenny (Microsoft - Female, Professional)</option>
+                            <option value="microsoft-en-US-GuyNeural">Guy (Microsoft - Male, Professional)</option>
+                            <option value="microsoft-en-US-SaraNeural">Sara (Microsoft - Female, Friendly)</option>
+                            <option value="microsoft-en-US-RyanNeural">Ryan (Microsoft - Male, Clear)</option>
+                            <option value="microsoft-en-US-AriaNeural">Aria (Microsoft - Female, Natural)</option>
+                            <option value="microsoft-en-US-DavisNeural">Davis (Microsoft - Male, Deep)</option>
                             <option value="elevenlabs">ElevenLabs (Premium Voices)</option>
                         </select>
                         
@@ -603,6 +686,17 @@
                         id="previewButton"
                     >
                         🎵 Preview Avatar & Voice
+                    </button>
+
+                    <button 
+                        type="button"
+                        class="btn-warning" 
+                        onclick="testMinimalAPI()" 
+                        style="margin-top: 10px; width: 100%;"
+                        disabled
+                        id="testButton"
+                    >
+                        🧪 Test Minimal API
                     </button>
 
                     <!-- Debug panel -->
@@ -740,7 +834,7 @@
         let currentPresenter = null;
         let isAvatarInitialized = false;
         let selectedAvatarUrl = 'https://clips-presenters.d-id.com/amy/image.png';
-        let selectedVoiceConfig = { type: 'microsoft', voice_id: 'sara' };
+        let selectedVoiceConfig = { type: 'microsoft', voice_id: 'en-US-JennyNeural' }; // Use proper voice ID
         let elevenlabsVoices2 = [];
         
         // Avatar URLs mapping
@@ -1056,13 +1150,18 @@
                 isAvatarInitialized = true;
                 updateAvatarStatus('Avatar initialized successfully', 'success');
                 
-                // Enable preview button
+                // Enable both buttons
                 const previewButton = document.getElementById('previewButton');
+                const testButton = document.getElementById('testButton');
                 if (previewButton) {
                     previewButton.disabled = false;
                     debugLog('Preview button enabled', 'success');
                 } else {
                     debugLog('Preview button not found', 'error');
+                }
+                if (testButton) {
+                    testButton.disabled = false;
+                    debugLog('Test button enabled', 'success');
                 }
                 
                 showStatus('D-ID avatar initialized successfully!', 'success');
@@ -2037,6 +2136,7 @@
     </script>
 </body>
 </html>
+
 
 
 
