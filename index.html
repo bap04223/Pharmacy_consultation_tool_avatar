@@ -480,24 +480,28 @@
                 <div class="form-group" style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 20px;">
                     <h3 style="margin-bottom: 15px; color: var(--text-primary); font-size: 1.1rem;">🎭 D-ID Avatar Settings</h3>
                     
-                    <label for="didApiKey">D-ID API Key:</label>
-                    <input 
-                        type="password" 
-                        id="didApiKey" 
-                        placeholder="Enter your D-ID API key"
-                        title="Get your API key from studio.d-id.com"
-                    >
-                    <small style="display: block; margin-top: 5px; color: var(--text-secondary); font-size: 12px;">
-                        Get your API key from <a href="https://studio.d-id.com" target="_blank">studio.d-id.com</a>
-                    </small>
-                    
-                    <button 
-                        class="btn-primary" 
-                        onclick="initializeDID()" 
-                        style="margin-top: 10px; width: 100%;"
-                    >
-                        🚀 Initialize Avatar
-                    </button>
+                    <form style="margin: 0;">
+                        <label for="didApiKey">D-ID API Key:</label>
+                        <input 
+                            type="password" 
+                            id="didApiKey" 
+                            placeholder="Enter your D-ID API key"
+                            title="Get your API key from studio.d-id.com"
+                            autocomplete="current-password"
+                        >
+                        <small style="display: block; margin-top: 5px; color: var(--text-secondary); font-size: 12px;">
+                            Get your API key from <a href="https://studio.d-id.com" target="_blank">studio.d-id.com</a>
+                        </small>
+                        
+                        <button 
+                            type="button"
+                            class="btn-primary" 
+                            onclick="initializeDID()" 
+                            style="margin-top: 10px; width: 100%;"
+                        >
+                            🚀 Initialize Avatar
+                        </button>
+                    </form>
                 </div>
             </div>
             
@@ -785,15 +789,17 @@
                 const payload = {
                     script: {
                         type: 'text',
-                        input: text
+                        input: text,
+                        provider: {
+                            type: 'microsoft',
+                            voice_id: 'Sara'
+                        }
                     },
                     config: {
                         fluent: true,
-                        driver_expressions: {
-                            start_frame: 0
-                        }
+                        pad_audio: 0.0
                     },
-                    source_url: defaultPresenterUrl // Use default avatar
+                    source_url: defaultPresenterUrl
                 };
 
                 console.log('Creating talk with payload:', payload);
@@ -1727,6 +1733,7 @@
     </script>
 </body>
 </html>
+
 
 
 
