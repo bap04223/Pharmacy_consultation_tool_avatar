@@ -154,19 +154,6 @@
             border-color: var(--primary-color);
         }
         
-        /* Avatar preview styling */
-        .avatar-preview {
-            width: 100%;
-            max-width: 150px;
-            height: 150px;
-            border: 2px solid var(--border-color);
-            border-radius: 8px;
-            object-fit: cover;
-            margin: 10px auto;
-            display: block;
-            background-color: #f8f9fa;
-        }
-        
         /* Push to talk button special styling - Smaller for more space */
         .talk-button {
             width: 120px;
@@ -408,27 +395,36 @@
             margin-right: 8px;
         }
 
-        /* Avatar and voice selection styling */
-        .avatar-voice-section {
-            border-top: 1px solid var(--border-color);
-            padding-top: 15px;
-            margin-top: 15px;
-        }
-
-        .selection-row {
+        /* Avatar selection styling */
+        .avatar-preview {
             display: flex;
+            align-items: center;
             gap: 10px;
-            margin-bottom: 15px;
+            margin-top: 10px;
         }
 
-        .selection-row > div {
+        .avatar-preview img {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid var(--border-color);
+        }
+
+        .avatar-preview .avatar-info {
             flex: 1;
+            text-align: left;
         }
 
-        .refresh-button {
-            padding: 5px 10px;
+        .avatar-preview .avatar-name {
+            font-weight: 500;
+            color: var(--text-primary);
             font-size: 14px;
-            margin-left: 5px;
+        }
+
+        .avatar-preview .avatar-description {
+            font-size: 12px;
+            color: var(--text-secondary);
         }
     </style>
 </head>
@@ -453,16 +449,16 @@
                 </div>
                 <div class="instructions-column">
                     <ol start="4">
-                        <li>Initialize your D-ID avatar with your API key</li>
-                        <li>Choose your preferred avatar and voice</li>
+                        <li>Choose your preferred avatar and initialize D-ID with your API key</li>
                         <li>Hold down the "Push to Talk" button and speak your consultation</li>
+                        <li>The AI patient will respond with both text and avatar video</li>
                     </ol>
                 </div>
                 <div class="instructions-column">
                     <ol start="7">
-                        <li>The AI patient will respond with both text and avatar video</li>
                         <li>Continue the conversation by speaking your responses</li>
                         <li>Use "Submit Conversation" to get evaluation feedback</li>
+                        <li>Refresh the browser after each scenario for a new session</li>
                     </ol>
                 </div>
             </div>
@@ -538,6 +534,23 @@
                 <div class="form-group" style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 20px;">
                     <h3 style="margin-bottom: 15px; color: var(--text-primary); font-size: 1.1rem;">🎭 D-ID Avatar Settings</h3>
                     
+                    <!-- Avatar Selection Dropdown -->
+                    <div class="form-group">
+                        <label for="avatarSelect">Choose Avatar:</label>
+                        <select id="avatarSelect">
+                            <option value="">Select an avatar...</option>
+                        </select>
+                        
+                        <!-- Avatar Preview -->
+                        <div id="avatarPreview" class="avatar-preview" style="display: none;">
+                            <img id="previewImage" src="" alt="Avatar preview">
+                            <div class="avatar-info">
+                                <div id="previewName" class="avatar-name"></div>
+                                <div id="previewDescription" class="avatar-description"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <form style="margin: 0;" onsubmit="return false;">
                         <input type="text" name="username" style="display: none;" autocomplete="username">
                         <label for="didApiKey">D-ID API Key:</label>
@@ -562,55 +575,6 @@
                             🚀 Initialize Avatar
                         </button>
                     </form>
-
-                    <!-- Avatar and Voice Selection -->
-                    <div class="avatar-voice-section" id="avatarVoiceSection" style="display: none;">
-                        <h4 style="margin-bottom: 10px; color: var(--text-primary);">Avatar & Voice Selection</h4>
-                        
-                        <!-- Avatar Selection -->
-                        <div class="form-group">
-                            <label for="avatarSelect">
-                                Choose Avatar:
-                                <button class="btn-secondary refresh-button" onclick="loadAvatars()" title="Refresh avatar list">🔄</button>
-                            </label>
-                            <select id="avatarSelect" onchange="onAvatarChange()">
-                                <option value="">Loading avatars...</option>
-                            </select>
-                        </div>
-
-                        <!-- Avatar Preview -->
-                        <div class="form-group">
-                            <img id="avatarPreview" class="avatar-preview" src="" alt="Avatar Preview" style="display: none;">
-                        </div>
-
-                        <!-- Voice Selection -->
-                        <div class="selection-row">
-                            <div>
-                                <label for="voiceProvider">Voice Provider:</label>
-                                <select id="voiceProvider" onchange="onVoiceProviderChange()">
-                                    <option value="microsoft">Microsoft</option>
-                                    <option value="amazon">Amazon</option>
-                                    <option value="elevenlabs">ElevenLabs</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label for="voiceSelect">
-                                    Voice:
-                                    <button class="btn-secondary refresh-button" onclick="loadVoices()" title="Refresh voice list">🔄</button>
-                                </label>
-                                <select id="voiceSelect">
-                                    <option value="">Loading voices...</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <!-- Voice Preview -->
-                        <div class="form-group">
-                            <button class="btn-info" onclick="testVoice()" style="width: 100%;">
-                                🔊 Test Voice
-                            </button>
-                        </div>
-                    </div>
                 </div>
             </div>
             
@@ -708,10 +672,6 @@
                 <!-- Status display area for system messages -->
                 <div id="status" class="status info" style="display: none; margin-top: 15px;"></div>
             </div>    
-                
-                <!-- Status display area for system messages -->
-                <div id="status" class="status info" style="display: none;"></div>
-            </div>
         </div>
     </div>
     
@@ -739,10 +699,81 @@
         let isAvatarInitialized = false;  // Track initialization status
         let defaultPresenterUrl = 'https://clips-presenters.d-id.com/amy/image.png'; // Default avatar
         let selectedAvatarUrl = '';       // Currently selected avatar URL
-        let selectedVoiceProvider = 'microsoft'; // Currently selected voice provider
-        let selectedVoiceId = 'Sara';     // Currently selected voice ID
-        let availableAvatars = [];        // Store available avatars
-        let availableVoices = [];         // Store available voices
+        
+        // ===== AVATAR DEFINITIONS =====
+        // Available D-ID avatars with their details
+        const availableAvatars = [
+            {
+                id: 'amy',
+                name: 'Amy',
+                description: 'Professional female healthcare provider',
+                imageUrl: 'https://clips-presenters.d-id.com/amy/image.png',
+                voice: 'Sara'
+            },
+            {
+                id: 'jessica',
+                name: 'Jessica',
+                description: 'Friendly female assistant',
+                imageUrl: 'https://clips-presenters.d-id.com/jessica/image.png',
+                voice: 'Sara'
+            },
+            {
+                id: 'john',
+                name: 'John',
+                description: 'Professional male healthcare provider',
+                imageUrl: 'https://clips-presenters.d-id.com/john/image.png',
+                voice: 'Brian'
+            },
+            {
+                id: 'anna_costume1_cameraA',
+                name: 'Anna',
+                description: 'Healthcare professional in medical attire',
+                imageUrl: 'https://clips-presenters.d-id.com/anna_costume1_cameraA/image.png',
+                voice: 'Sara'
+            },
+            {
+                id: 'eric_costume1_cameraA',
+                name: 'Eric',
+                description: 'Male medical professional',
+                imageUrl: 'https://clips-presenters.d-id.com/eric_costume1_cameraA/image.png',
+                voice: 'Brian'
+            },
+            {
+                id: 'noelle',
+                name: 'Noelle',
+                description: 'Experienced female pharmacist',
+                imageUrl: 'https://clips-presenters.d-id.com/noelle/image.png',
+                voice: 'Sara'
+            },
+            {
+                id: 'rian',
+                name: 'Rian',
+                description: 'Young professional male',
+                imageUrl: 'https://clips-presenters.d-id.com/rian/image.png',
+                voice: 'Brian'
+            },
+            {
+                id: 'david',
+                name: 'David',
+                description: 'Senior healthcare professional',
+                imageUrl: 'https://clips-presenters.d-id.com/david/image.png',
+                voice: 'Brian'
+            },
+            {
+                id: 'maya',
+                name: 'Maya',
+                description: 'Caring female healthcare provider',
+                imageUrl: 'https://clips-presenters.d-id.com/maya/image.png',
+                voice: 'Sara'
+            },
+            {
+                id: 'stephanie',
+                name: 'Stephanie',
+                description: 'Professional female consultant',
+                imageUrl: 'https://clips-presenters.d-id.com/stephanie/image.png',
+                voice: 'Sara'
+            }
+        ];
         
         // ===== INITIALIZATION =====
         // This runs when the page loads
@@ -766,21 +797,91 @@
             // Initialize avatar video element reference
             avatarVideo = document.getElementById('avatarVideo');
             
+            // Populate avatar selection dropdown
+            populateAvatarDropdown();
+            
             // Check if D-ID SDK is loaded with better detection
             setTimeout(() => {
                 if (window.didSDKLoaded && typeof DID !== 'undefined') {
                     console.log('D-ID SDK loaded successfully');
-                    updateAvatarStatus('D-ID SDK ready - Enter API key to initialize', 'info');
+                    updateAvatarStatus('D-ID SDK ready - Select avatar and enter API key to initialize', 'info');
                 } else if (window.didUseFallback) {
                     console.log('D-ID SDK using fallback method');
-                    updateAvatarStatus('D-ID ready (REST API) - Enter API key to initialize', 'info');
+                    updateAvatarStatus('D-ID ready (REST API) - Select avatar and enter API key to initialize', 'info');
                 } else {
                     console.warn('D-ID SDK not loaded, using REST API fallback');
                     window.didUseFallback = true;
-                    updateAvatarStatus('D-ID ready (fallback) - Enter API key to initialize', 'info');
+                    updateAvatarStatus('D-ID ready (fallback) - Select avatar and enter API key to initialize', 'info');
                 }
             }, 1000);
         };
+        
+        // ===== AVATAR SELECTION FUNCTIONS =====
+        // Handle avatar selection and preview
+        
+        function populateAvatarDropdown() {
+            const select = document.getElementById('avatarSelect');
+            
+            // Clear existing options
+            select.innerHTML = '<option value="">Select an avatar...</option>';
+            
+            // Add avatar options
+            availableAvatars.forEach(avatar => {
+                const option = document.createElement('option');
+                option.value = avatar.id;
+                option.textContent = `${avatar.name} - ${avatar.description}`;
+                option.dataset.imageUrl = avatar.imageUrl;
+                option.dataset.voice = avatar.voice;
+                option.dataset.description = avatar.description;
+                select.appendChild(option);
+            });
+            
+            // Add change event listener
+            select.addEventListener('change', handleAvatarSelection);
+        }
+        
+        function handleAvatarSelection(event) {
+            const selectedOption = event.target.selectedOptions[0];
+            const avatarPreview = document.getElementById('avatarPreview');
+            
+            if (selectedOption.value) {
+                // Get avatar data
+                const avatarId = selectedOption.value;
+                const avatarData = availableAvatars.find(a => a.id === avatarId);
+                
+                if (avatarData) {
+                    // Update selected avatar URL
+                    selectedAvatarUrl = avatarData.imageUrl;
+                    
+                    // Show preview
+                    document.getElementById('previewImage').src = avatarData.imageUrl;
+                    document.getElementById('previewName').textContent = avatarData.name;
+                    document.getElementById('previewDescription').textContent = avatarData.description;
+                    avatarPreview.style.display = 'flex';
+                    
+                    // Save selection
+                    saveConfig();
+                    
+                    console.log('Avatar selected:', avatarData);
+                    updateAvatarStatus(`Avatar selected: ${avatarData.name}`, 'info');
+                }
+            } else {
+                // Hide preview if no selection
+                avatarPreview.style.display = 'none';
+                selectedAvatarUrl = '';
+                updateAvatarStatus('Select an avatar to continue', 'info');
+            }
+        }
+        
+        function getSelectedAvatar() {
+            const select = document.getElementById('avatarSelect');
+            const selectedOption = select.selectedOptions[0];
+            
+            if (selectedOption && selectedOption.value) {
+                return availableAvatars.find(a => a.id === selectedOption.value);
+            }
+            return null;
+        }
         
         // ===== SESSION MANAGEMENT =====
         // Generate and manage unique session IDs
@@ -991,6 +1092,16 @@
                     throw new Error('D-ID API key not provided');
                 }
                 
+                // Check if avatar is selected
+                const selectedAvatar = getSelectedAvatar();
+                if (!selectedAvatar) {
+                    throw new Error('Please select an avatar first');
+                }
+                
+                // Update current presenter URL
+                defaultPresenterUrl = selectedAvatar.imageUrl;
+                selectedAvatarUrl = selectedAvatar.imageUrl;
+                
                 // Get video element
                 avatarVideo = document.getElementById('avatarVideo');
                 
@@ -1013,16 +1124,7 @@
                     
                     console.log('D-ID REST API initialized successfully');
                     isAvatarInitialized = true;
-                    updateAvatarStatus('Avatar initialized - Loading options...', 'success');
-                    
-                    // Show avatar and voice selection section
-                    document.getElementById('avatarVoiceSection').style.display = 'block';
-                    
-                    // Load available avatars and voices
-                    await loadAvatars();
-                    await loadVoices();
-                    
-                    updateAvatarStatus('Avatar ready - Select options above', 'success');
+                    updateAvatarStatus(`Avatar initialized: ${selectedAvatar.name} (REST API)`, 'success');
                     
                     return true;
                 } else {
@@ -1035,16 +1137,7 @@
                     
                     console.log('D-ID SDK client initialized successfully');
                     isAvatarInitialized = true;
-                    updateAvatarStatus('Avatar initialized - Loading options...', 'success');
-                    
-                    // Show avatar and voice selection section
-                    document.getElementById('avatarVoiceSection').style.display = 'block';
-                    
-                    // Load available avatars and voices
-                    await loadAvatars();
-                    await loadVoices();
-                    
-                    updateAvatarStatus('Avatar ready - Select options above', 'success');
+                    updateAvatarStatus(`Avatar initialized: ${selectedAvatar.name} (SDK)`, 'success');
                     
                     return true;
                 }
@@ -1076,403 +1169,6 @@
                 return true;
             } catch (error) {
                 throw new Error(`API connection failed: ${error.message}`);
-            }
-        }
-
-        // ===== AVATAR AND VOICE SELECTION FUNCTIONS =====
-        
-        // Load available avatars from D-ID API
-        async function loadAvatars() {
-            try {
-                console.log('Loading available avatars from D-ID...');
-                updateAvatarStatus('Loading avatars...', 'loading');
-                
-                // Try to fetch presenters from D-ID API
-                let avatars = [];
-                
-                try {
-                    const response = await fetch('https://api.d-id.com/clips/presenters', {
-                        method: 'GET',
-                        headers: {
-                            'Authorization': `Basic ${didApiKey}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-                    
-                    if (response.ok) {
-                        const data = await response.json();
-                        console.log('D-ID API presenters response:', data);
-                        avatars = data.presenters || data || [];
-                    } else {
-                        console.log('API call failed, using default avatars');
-                        throw new Error('API call failed');
-                    }
-                } catch (apiError) {
-                    console.log('Using fallback avatars due to API error:', apiError);
-                }
-                
-                // Fallback to known D-ID presenters if API fails
-                if (!avatars || avatars.length === 0) {
-                    avatars = [
-                        {
-                            presenter_id: 'amy-jcwCkr1grs',
-                            display_name: 'Amy',
-                            gender: 'female',
-                            thumbnail_url: 'https://clips-presenters.d-id.com/amy/image.png'
-                        },
-                        {
-                            presenter_id: 'monica-6Ty8PhOP4W',
-                            display_name: 'Monica',
-                            gender: 'female',
-                            thumbnail_url: 'https://clips-presenters.d-id.com/monica/image.png'
-                        },
-                        {
-                            presenter_id: 'eric-jbWJZhVChy',
-                            display_name: 'Eric',
-                            gender: 'male',
-                            thumbnail_url: 'https://clips-presenters.d-id.com/eric/image.png'
-                        },
-                        {
-                            presenter_id: 'william-jHRdQJbx2X',
-                            display_name: 'William',
-                            gender: 'male',
-                            thumbnail_url: 'https://clips-presenters.d-id.com/william/image.png'
-                        },
-                        {
-                            presenter_id: 'ava-i_TQGg6hbR',
-                            display_name: 'Ava',
-                            gender: 'female',
-                            thumbnail_url: 'https://clips-presenters.d-id.com/ava/image.png'
-                        },
-                        {
-                            presenter_id: 'julia-OTF9hkQOOV',
-                            display_name: 'Julia',
-                            gender: 'female',
-                            thumbnail_url: 'https://clips-presenters.d-id.com/julia/image.png'
-                        }
-                    ];
-                }
-                
-                availableAvatars = avatars;
-                
-                // Populate avatar dropdown
-                const avatarSelect = document.getElementById('avatarSelect');
-                avatarSelect.innerHTML = '<option value="">Select an avatar...</option>';
-                
-                avatars.forEach(avatar => {
-                    const option = document.createElement('option');
-                    // Use the actual presenter data structure
-                    const avatarId = avatar.presenter_id || avatar.id;
-                    const avatarName = avatar.display_name || avatar.name;
-                    const avatarGender = avatar.gender ? ` (${avatar.gender})` : '';
-                    const thumbnailUrl = avatar.thumbnail_url || avatar.image_url;
-                    
-                    option.value = avatarId;
-                    option.textContent = `${avatarName}${avatarGender}`;
-                    option.dataset.thumbnail = thumbnailUrl;
-                    avatarSelect.appendChild(option);
-                });
-                
-                // Set default selection (Amy)
-                const defaultAvatar = avatars.find(a => (a.display_name || a.name) === 'Amy');
-                if (defaultAvatar) {
-                    avatarSelect.value = defaultAvatar.presenter_id || defaultAvatar.id;
-                    selectedAvatarUrl = defaultAvatar.presenter_id || defaultAvatar.id;
-                    onAvatarChange();
-                }
-                
-                console.log('Avatars loaded successfully:', avatars.length);
-                updateAvatarStatus('Avatars loaded', 'success');
-                
-                // Restore saved selections after loading
-                setTimeout(() => {
-                    restoreUISelections();
-                }, 100);
-                
-            } catch (error) {
-                console.error('Error loading avatars:', error);
-                showStatus('Error loading avatars', 'error');
-                updateAvatarStatus('Error loading avatars', 'error');
-            }
-        }
-        
-        // Load available voices from D-ID API
-        async function loadVoices() {
-            try {
-                console.log('Loading available voices from D-ID API...');
-                
-                // Try to fetch voices from D-ID API
-                let didVoices = {};
-                
-                try {
-                    // Fetch Microsoft voices
-                    const msResponse = await fetch('https://api.d-id.com/tts/voices?provider=microsoft', {
-                        method: 'GET',
-                        headers: {
-                            'Authorization': `Basic ${didApiKey}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-                    
-                    if (msResponse.ok) {
-                        const msData = await msResponse.json();
-                        console.log('Microsoft voices from API:', msData);
-                        didVoices.microsoft = msData.voices || msData || [];
-                    }
-                    
-                    // Fetch Amazon voices
-                    const amzResponse = await fetch('https://api.d-id.com/tts/voices?provider=amazon', {
-                        method: 'GET',
-                        headers: {
-                            'Authorization': `Basic ${didApiKey}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-                    
-                    if (amzResponse.ok) {
-                        const amzData = await amzResponse.json();
-                        console.log('Amazon voices from API:', amzData);
-                        didVoices.amazon = amzData.voices || amzData || [];
-                    }
-                    
-                    // Fetch ElevenLabs voices
-                    const elResponse = await fetch('https://api.d-id.com/tts/voices?provider=elevenlabs', {
-                        method: 'GET',
-                        headers: {
-                            'Authorization': `Basic ${didApiKey}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-                    
-                    if (elResponse.ok) {
-                        const elData = await elResponse.json();
-                        console.log('ElevenLabs voices from API:', elData);
-                        didVoices.elevenlabs = elData.voices || elData || [];
-                    }
-                    
-                } catch (apiError) {
-                    console.log('Voice API calls failed, using fallback voices:', apiError);
-                }
-                
-                // Fallback to known D-ID voices if API fails
-                if (Object.keys(didVoices).length === 0 || 
-                    !didVoices.microsoft || didVoices.microsoft.length === 0) {
-                    console.log('Using fallback voice list');
-                    didVoices = {
-                        microsoft: [
-                            { id: 'en-US-JennyNeural', name: 'Jenny (US Female, Friendly)', language: 'en-US', gender: 'Female' },
-                            { id: 'en-US-AriaNeural', name: 'Aria (US Female, Conversational)', language: 'en-US', gender: 'Female' },
-                            { id: 'en-US-DavisNeural', name: 'Davis (US Male, Professional)', language: 'en-US', gender: 'Male' },
-                            { id: 'en-US-TonyNeural', name: 'Tony (US Male, Confident)', language: 'en-US', gender: 'Male' },
-                            { id: 'en-US-JasonNeural', name: 'Jason (US Male, Casual)', language: 'en-US', gender: 'Male' },
-                            { id: 'en-US-NancyNeural', name: 'Nancy (US Female, Mature)', language: 'en-US', gender: 'Female' },
-                            { id: 'en-US-AmberNeural', name: 'Amber (US Female, Warm)', language: 'en-US', gender: 'Female' },
-                            { id: 'en-US-BrandonNeural', name: 'Brandon (US Male, Warm)', language: 'en-US', gender: 'Male' },
-                            { id: 'en-GB-SoniaNeural', name: 'Sonia (UK Female, Professional)', language: 'en-GB', gender: 'Female' },
-                            { id: 'en-GB-RyanNeural', name: 'Ryan (UK Male, Professional)', language: 'en-GB', gender: 'Male' },
-                            { id: 'en-AU-NatashaNeural', name: 'Natasha (AU Female, Clear)', language: 'en-AU', gender: 'Female' },
-                            { id: 'en-AU-WilliamNeural', name: 'William (AU Male, Clear)', language: 'en-AU', gender: 'Male' }
-                        ],
-                        amazon: [
-                            { id: 'Joanna', name: 'Joanna (US Female, Clear)', language: 'en-US', gender: 'Female' },
-                            { id: 'Matthew', name: 'Matthew (US Male, Clear)', language: 'en-US', gender: 'Male' },
-                            { id: 'Amy', name: 'Amy (UK Female, Clear)', language: 'en-GB', gender: 'Female' },
-                            { id: 'Brian', name: 'Brian (UK Male, Clear)', language: 'en-GB', gender: 'Male' },
-                            { id: 'Emma', name: 'Emma (UK Female, Friendly)', language: 'en-GB', gender: 'Female' },
-                            { id: 'Olivia', name: 'Olivia (AU Female, Professional)', language: 'en-AU', gender: 'Female' },
-                            { id: 'Kendra', name: 'Kendra (US Female, Professional)', language: 'en-US', gender: 'Female' },
-                            { id: 'Kevin', name: 'Kevin (US Male, Professional)', language: 'en-US', gender: 'Male' },
-                            { id: 'Salli', name: 'Salli (US Female, Conversational)', language: 'en-US', gender: 'Female' },
-                            { id: 'Joey', name: 'Joey (US Male, Conversational)', language: 'en-US', gender: 'Male' }
-                        ],
-                        elevenlabs: [
-                            { id: 'Rachel', name: 'Rachel (Female, Natural)', gender: 'Female' },
-                            { id: 'Drew', name: 'Drew (Male, Natural)', gender: 'Male' },
-                            { id: 'Clyde', name: 'Clyde (Male, Warm)', gender: 'Male' },
-                            { id: 'Paul', name: 'Paul (Male, Confident)', gender: 'Male' },
-                            { id: 'Domi', name: 'Domi (Female, Confident)', gender: 'Female' },
-                            { id: 'Dave', name: 'Dave (Male, Conversational)', gender: 'Male' },
-                            { id: 'Fin', name: 'Fin (Male, Young)', gender: 'Male' },
-                            { id: 'Sarah', name: 'Sarah (Female, Professional)', gender: 'Female' },
-                            { id: 'Antoni', name: 'Antoni (Male, Professional)', gender: 'Male' },
-                            { id: 'Thomas', name: 'Thomas (Male, Calm)', gender: 'Male' }
-                        ]
-                    };
-                }
-                
-                // Process API voices if we got them
-                if (didVoices.microsoft && didVoices.microsoft.length > 0 && didVoices.microsoft[0].voice_id) {
-                    // API format: convert to our format
-                    Object.keys(didVoices).forEach(provider => {
-                        didVoices[provider] = didVoices[provider].map(voice => ({
-                            id: voice.voice_id || voice.id,
-                            name: voice.display_name || voice.name || `${voice.voice_id} (${voice.gender || 'Unknown'})`,
-                            language: voice.language || voice.locale,
-                            gender: voice.gender
-                        }));
-                    });
-                }
-                
-                availableVoices = didVoices;
-                console.log('Final voices object:', availableVoices);
-                
-                // Load voices for current provider
-                loadVoicesForProvider();
-                
-                console.log('D-ID voices loaded successfully');
-                
-                // Restore saved selections after loading
-                setTimeout(() => {
-                    restoreUISelections();
-                }, 200);
-                
-            } catch (error) {
-                console.error('Error loading voices:', error);
-                showStatus('Error loading voices', 'error');
-            }
-        }
-        
-        // Load voices for the selected provider
-        function loadVoicesForProvider() {
-            const provider = document.getElementById('voiceProvider').value;
-            const voiceSelect = document.getElementById('voiceSelect');
-            
-            console.log('Loading voices for provider:', provider);
-            console.log('Available voices:', availableVoices);
-            
-            voiceSelect.innerHTML = '<option value="">Select a voice...</option>';
-            
-            if (availableVoices[provider] && availableVoices[provider].length > 0) {
-                console.log(`Found ${availableVoices[provider].length} voices for ${provider}`);
-                
-                availableVoices[provider].forEach((voice, index) => {
-                    const option = document.createElement('option');
-                    option.value = voice.id;
-                    
-                    // Create a readable name from the voice data
-                    let displayName = voice.name;
-                    if (!displayName) {
-                        // Fallback to creating name from voice data
-                        const voiceName = voice.display_name || voice.voice_id || voice.id;
-                        const gender = voice.gender ? ` (${voice.gender})` : '';
-                        const language = voice.language ? ` - ${voice.language}` : '';
-                        displayName = `${voiceName}${gender}${language}`;
-                    }
-                    
-                    option.textContent = displayName;
-                    voiceSelect.appendChild(option);
-                    
-                    // Log first few voices for debugging
-                    if (index < 3) {
-                        console.log(`Voice ${index}:`, voice);
-                    }
-                });
-                
-                // Set default selection based on provider
-                let defaultVoice = '';
-                if (provider === 'microsoft') {
-                    // Look for Jenny or Aria
-                    const jenny = availableVoices[provider].find(v => v.id.includes('Jenny'));
-                    const aria = availableVoices[provider].find(v => v.id.includes('Aria'));
-                    defaultVoice = jenny ? jenny.id : (aria ? aria.id : availableVoices[provider][0].id);
-                } else if (provider === 'amazon') {
-                    // Look for Joanna
-                    const joanna = availableVoices[provider].find(v => v.id === 'Joanna');
-                    defaultVoice = joanna ? joanna.id : availableVoices[provider][0].id;
-                } else if (provider === 'elevenlabs') {
-                    // Look for Rachel
-                    const rachel = availableVoices[provider].find(v => v.id === 'Rachel');
-                    defaultVoice = rachel ? rachel.id : availableVoices[provider][0].id;
-                }
-                
-                if (defaultVoice) {
-                    voiceSelect.value = defaultVoice;
-                    selectedVoiceId = defaultVoice;
-                    console.log('Set default voice:', defaultVoice);
-                }
-                
-                selectedVoiceProvider = provider;
-                onVoiceChange(); // Save the selection
-                
-            } else {
-                console.error('No voices found for provider:', provider);
-                voiceSelect.innerHTML = '<option value="">No voices available for this provider</option>';
-            }
-        }
-        
-        // Handle avatar selection change
-        function onAvatarChange() {
-            const avatarSelect = document.getElementById('avatarSelect');
-            const avatarPreview = document.getElementById('avatarPreview');
-            
-            console.log('Avatar selection changed to:', avatarSelect.value);
-            
-            if (avatarSelect.value && avatarSelect.value !== '') {
-                selectedAvatarUrl = avatarSelect.value;
-                
-                // Get the thumbnail URL from the selected option
-                const selectedOption = avatarSelect.options[avatarSelect.selectedIndex];
-                const thumbnailUrl = selectedOption.dataset.thumbnail;
-                
-                console.log('Selected avatar ID:', selectedAvatarUrl);
-                console.log('Thumbnail URL:', thumbnailUrl);
-                
-                if (thumbnailUrl && thumbnailUrl !== '') {
-                    avatarPreview.src = thumbnailUrl;
-                    avatarPreview.style.display = 'block';
-                    avatarPreview.onload = function() {
-                        console.log('Avatar preview loaded successfully');
-                    };
-                    avatarPreview.onerror = function() {
-                        console.warn('Avatar preview image failed to load:', thumbnailUrl);
-                        this.style.display = 'none';
-                    };
-                } else {
-                    console.warn('No thumbnail URL found for selected avatar');
-                    avatarPreview.style.display = 'none';
-                }
-                
-                saveConfig();
-                console.log('Avatar changed and saved:', selectedAvatarUrl);
-            } else {
-                avatarPreview.style.display = 'none';
-                console.log('Avatar selection cleared');
-            }
-        }
-        
-        // Handle voice provider change
-        function onVoiceProviderChange() {
-            console.log('Voice provider changing...');
-            selectedVoiceProvider = document.getElementById('voiceProvider').value;
-            loadVoicesForProvider();
-            saveConfig();
-            console.log('Voice provider changed to:', selectedVoiceProvider);
-        }
-        
-        // Handle voice selection change
-        function onVoiceChange() {
-            const voiceSelect = document.getElementById('voiceSelect');
-            selectedVoiceId = voiceSelect.value;
-            saveConfig();
-            console.log('Voice changed to:', selectedVoiceId);
-        }
-        
-        // Test the selected voice
-        async function testVoice() {
-            if (!isAvatarInitialized) {
-                showStatus('Please initialize D-ID first', 'error');
-                return;
-            }
-            
-            const testText = "Hello! This is a test of the selected voice. How does this sound for our consultation?";
-            
-            try {
-                updateAvatarStatus('Testing voice...', 'loading');
-                await speakWithAvatar(testText);
-            } catch (error) {
-                console.error('Voice test error:', error);
-                showStatus('Voice test failed', 'error');
-                updateAvatarStatus('Voice test failed', 'error');
             }
         }
 
@@ -1520,43 +1216,25 @@
         // Create a new talk using D-ID REST API
         async function createTalk(text) {
             try {
+                const selectedAvatar = getSelectedAvatar();
+                const presenterUrl = selectedAvatar ? selectedAvatar.imageUrl : defaultPresenterUrl;
+                const voiceId = selectedAvatar ? selectedAvatar.voice : 'Sara';
+                
                 const payload = {
                     script: {
                         type: 'text',
                         input: text,
                         provider: {
-                            type: selectedVoiceProvider,
-                            voice_id: selectedVoiceId
+                            type: 'microsoft',
+                            voice_id: voiceId
                         }
                     },
                     config: {
                         fluent: true,
                         pad_audio: 0.0
-                    }
+                    },
+                    source_url: presenterUrl
                 };
-
-                // Add the correct source parameter based on selection
-                if (selectedAvatarUrl && selectedAvatarUrl !== '') {
-                    // Check if it looks like a presenter ID (contains special characters or specific patterns)
-                    if (selectedAvatarUrl.includes('@') || selectedAvatarUrl.includes('_') || 
-                        selectedAvatarUrl.match(/^[a-zA-Z0-9_-]+$/)) {
-                        // It's a presenter ID
-                        payload.presenter_id = selectedAvatarUrl;
-                        console.log('Using presenter_id:', selectedAvatarUrl);
-                    } else if (selectedAvatarUrl.match(/\.(jpg|jpeg|png|gif)(\?|$)/i)) {
-                        // It's an image URL
-                        payload.source_url = selectedAvatarUrl;
-                        console.log('Using source_url:', selectedAvatarUrl);
-                    } else {
-                        // Fallback: try as presenter_id first
-                        payload.presenter_id = selectedAvatarUrl;
-                        console.log('Assuming presenter_id for:', selectedAvatarUrl);
-                    }
-                } else {
-                    // Fallback to default
-                    payload.source_url = defaultPresenterUrl;
-                    console.log('Using default presenter URL');
-                }
 
                 console.log('Creating talk with payload:', payload);
 
@@ -1572,29 +1250,6 @@
                 if (!response.ok) {
                     const errorText = await response.text();
                     console.error('D-ID API error response:', errorText);
-                    
-                    // If presenter_id failed, try with source_url instead
-                    if (response.status === 400 && payload.presenter_id && !payload.source_url) {
-                        console.log('Presenter ID failed, retrying with default source URL...');
-                        delete payload.presenter_id;
-                        payload.source_url = defaultPresenterUrl;
-                        
-                        const retryResponse = await fetch('https://api.d-id.com/talks', {
-                            method: 'POST',
-                            headers: {
-                                'Authorization': `Basic ${didApiKey}`,
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify(payload)
-                        });
-                        
-                        if (retryResponse.ok) {
-                            const retryResult = await retryResponse.json();
-                            console.log('Retry successful with default avatar:', retryResult);
-                            return retryResult;
-                        }
-                    }
-                    
                     throw new Error(`API request failed: ${response.status} - ${errorText}`);
                 }
 
@@ -1695,7 +1350,9 @@
 
                     avatarVideo.onended = () => {
                         console.log('Video playback completed');
-                        updateAvatarStatus('Avatar ready', 'info');
+                        const selectedAvatar = getSelectedAvatar();
+                        const avatarName = selectedAvatar ? selectedAvatar.name : 'Avatar';
+                        updateAvatarStatus(`${avatarName} ready`, 'info');
                     };
 
                     avatarVideo.onerror = (error) => {
@@ -1724,11 +1381,6 @@
                 statusElement.className = `avatar-status ${type}`;
             }
         }
-        
-        // ===== MESSAGE HANDLING =====
-        // Handle sending messages via speech recognition
-        
-        // Remove the old text input functions since we're using speech now
         
         // ===== GOOGLE SHEETS INTEGRATION =====
         // Load sheet names from Google Sheets
@@ -1890,7 +1542,7 @@
             });
             
             console.log('Selected scenario:', currentScenario);
-            showStatus(`Scenario loaded: ${currentScenario['Patient Name']}`, 'success');
+            showStatus(`Scenario loaded: ${currentScenario['Patient Name'] || currentScenario['Scenario Name'] || 'Unknown'}`, 'success');
             
             // Clear previous conversation
             clearChat();
@@ -1921,6 +1573,12 @@
                 exportText += `Session ID: ${sessionId}\n`;
                 exportText += `Export Date: ${new Date().toLocaleString()}\n`;
                 exportText += `Session Start: ${new Date(parseInt(sessionId.split('_')[1])).toLocaleString()}\n\n`;
+                
+                // Add avatar information
+                const selectedAvatar = getSelectedAvatar();
+                if (selectedAvatar) {
+                    exportText += `Avatar Used: ${selectedAvatar.name} - ${selectedAvatar.description}\n\n`;
+                }
                 
                 // Add scenario information if available
                 if (currentScenario) {
@@ -2034,7 +1692,7 @@
                 // Add export footer
                 exportText += '='.repeat(60) + '\n';
                 exportText += 'End of Conversation Export\n';
-                exportText += 'Generated by Pharmacy Training System v1.1\n';
+                exportText += 'Generated by Pharmacy Training System v1.2\n';
                 exportText += '='.repeat(60) + '\n';
                 
                 // Create and download the file
@@ -2087,6 +1745,9 @@
             addMessage('<div class="spinner"></div>', 'ai');
             
             try {
+                // Get selected avatar info
+                const selectedAvatar = getSelectedAvatar();
+                
                 // Prepare data to send
                 const payload = {
                     sessionId: sessionId,
@@ -2094,6 +1755,12 @@
                     scenario: currentScenario,
                     timestamp: new Date().toISOString(),
                     conversationHistory: conversationHistory,
+                    avatarInfo: selectedAvatar ? {
+                        id: selectedAvatar.id,
+                        name: selectedAvatar.name,
+                        description: selectedAvatar.description,
+                        voice: selectedAvatar.voice
+                    } : null,
                     studentInfo: {
                         sessionStartTime: new Date(parseInt(sessionId.split('_')[1])).toISOString(),
                         messageCount: conversationHistory.filter(h => h.sender === 'user').length + 1
@@ -2208,23 +1875,27 @@
             addMessage('📤 Submitting conversation for evaluation...', 'system');
             
             try {
+                // Get selected avatar info
+                const selectedAvatar = getSelectedAvatar();
+                
                 // Prepare comprehensive data for submission
                 const submissionPayload = {
                     sessionId: sessionId,
                     scenario: currentScenario,
                     conversationHistory: conversationHistory,
                     submissionTime: new Date().toISOString(),
+                    avatarInfo: selectedAvatar ? {
+                        id: selectedAvatar.id,
+                        name: selectedAvatar.name,
+                        description: selectedAvatar.description,
+                        voice: selectedAvatar.voice
+                    } : null,
                     sessionInfo: {
                         sessionStartTime: new Date(parseInt(sessionId.split('_')[1])).toISOString(),
                         totalMessages: conversationHistory.length,
                         userMessages: conversationHistory.filter(h => h.sender === 'user').length,
                         aiMessages: conversationHistory.filter(h => h.sender === 'ai').length,
                         duration: Date.now() - parseInt(sessionId.split('_')[1]) // Duration in milliseconds
-                    },
-                    avatarSettings: {
-                        avatarUrl: selectedAvatarUrl,
-                        voiceProvider: selectedVoiceProvider,
-                        voiceId: selectedVoiceId
                     },
                     metadata: {
                         userAgent: navigator.userAgent,
@@ -2447,9 +2118,7 @@
                 sheetId: document.getElementById('sheetId').value,
                 sheetName: getSelectedSheetName(),
                 didApiKey: document.getElementById('didApiKey').value,
-                selectedAvatarUrl: selectedAvatarUrl,
-                selectedVoiceProvider: selectedVoiceProvider,
-                selectedVoiceId: selectedVoiceId
+                selectedAvatar: document.getElementById('avatarSelect').value
             };
             localStorage.setItem('pharmacyChatConfig', JSON.stringify(config));
         }
@@ -2463,21 +2132,6 @@
                 document.getElementById('sheetId').value = config.sheetId || '';
                 document.getElementById('didApiKey').value = config.didApiKey || '';
                 
-                // Restore avatar and voice settings
-                if (config.selectedAvatarUrl) {
-                    selectedAvatarUrl = config.selectedAvatarUrl;
-                    console.log('Restored avatar URL:', selectedAvatarUrl);
-                }
-                if (config.selectedVoiceProvider) {
-                    selectedVoiceProvider = config.selectedVoiceProvider;
-                    document.getElementById('voiceProvider').value = selectedVoiceProvider;
-                    console.log('Restored voice provider:', selectedVoiceProvider);
-                }
-                if (config.selectedVoiceId) {
-                    selectedVoiceId = config.selectedVoiceId;
-                    console.log('Restored voice ID:', selectedVoiceId);
-                }
-                
                 // Try to set sheet name in dropdown
                 const sheetNameDropdown = document.getElementById('sheetName');
                 if (config.sheetName) {
@@ -2486,47 +2140,15 @@
                         sheetNameDropdown.value = config.sheetName;
                     }
                 }
-            }
-        }
-        
-        // Function to restore UI selections after loading avatars/voices
-        function restoreUISelections() {
-            console.log('Restoring UI selections...');
-            
-            // Restore avatar selection
-            const avatarSelect = document.getElementById('avatarSelect');
-            if (selectedAvatarUrl && avatarSelect) {
-                // Find the option with matching value
-                for (let i = 0; i < avatarSelect.options.length; i++) {
-                    if (avatarSelect.options[i].value === selectedAvatarUrl) {
-                        avatarSelect.selectedIndex = i;
-                        console.log('Restored avatar selection:', selectedAvatarUrl);
-                        onAvatarChange(); // Update preview
-                        break;
-                    }
+                
+                // Set saved avatar selection
+                if (config.selectedAvatar) {
+                    const avatarSelect = document.getElementById('avatarSelect');
+                    avatarSelect.value = config.selectedAvatar;
+                    // Trigger the change event to update preview
+                    avatarSelect.dispatchEvent(new Event('change'));
                 }
             }
-            
-            // Restore voice provider selection
-            const voiceProvider = document.getElementById('voiceProvider');
-            if (selectedVoiceProvider && voiceProvider) {
-                voiceProvider.value = selectedVoiceProvider;
-                loadVoicesForProvider(); // This will also restore voice selection
-            }
-            
-            // Restore voice selection after provider is set
-            setTimeout(() => {
-                const voiceSelect = document.getElementById('voiceSelect');
-                if (selectedVoiceId && voiceSelect) {
-                    for (let i = 0; i < voiceSelect.options.length; i++) {
-                        if (voiceSelect.options[i].value === selectedVoiceId) {
-                            voiceSelect.selectedIndex = i;
-                            console.log('Restored voice selection:', selectedVoiceId);
-                            break;
-                        }
-                    }
-                }
-            }, 100);
         }
         
         // Select a random scenario
@@ -2547,17 +2169,10 @@
             
             showStatus(`Randomly selected: ${sheetData[randomIndex][0]}`, 'success');
         }
-
-        // Add event listeners for voice selection
-        document.addEventListener('DOMContentLoaded', function() {
-            const voiceSelect = document.getElementById('voiceSelect');
-            if (voiceSelect) {
-                voiceSelect.addEventListener('change', onVoiceChange);
-            }
-        });
     </script>
 </body>
 </html>
+
 
 
 
