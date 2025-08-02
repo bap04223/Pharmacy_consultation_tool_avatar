@@ -480,11 +480,13 @@
                 <div class="form-group" style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 20px;">
                     <h3 style="margin-bottom: 15px; color: var(--text-primary); font-size: 1.1rem;">🎭 D-ID Avatar Settings</h3>
                     
-                    <form style="margin: 0;">
+                    <form style="margin: 0;" onsubmit="return false;">
+                        <input type="text" name="username" style="display: none;" autocomplete="username">
                         <label for="didApiKey">D-ID API Key:</label>
                         <input 
                             type="password" 
                             id="didApiKey" 
+                            name="password"
                             placeholder="Enter your D-ID API key"
                             title="Get your API key from studio.d-id.com"
                             autocomplete="current-password"
@@ -516,7 +518,7 @@
                         width="320" 
                         height="240" 
                         autoplay 
-                        muted
+                        controls
                         style="border-radius: 8px; background-color: #f0f0f0; display: block; margin: 0 auto 15px auto;"
                     >
                         Your browser does not support the video element.
@@ -887,18 +889,31 @@
 
                 // Set video source and play
                 avatarVideo.src = videoUrl;
+                avatarVideo.muted = false; // Ensure audio is enabled
+                avatarVideo.volume = 0.8;  // Set volume to 80%
                 avatarVideo.load();
 
                 // Wait for video to be ready and play
                 return new Promise((resolve, reject) => {
                     avatarVideo.onloadeddata = () => {
                         console.log('Video loaded, starting playback');
+                        console.log('Video muted:', avatarVideo.muted);
+                        console.log('Video volume:', avatarVideo.volume);
+                        
                         avatarVideo.play()
                             .then(() => {
                                 console.log('Video playback started');
                                 resolve();
                             })
-                            .catch(reject);
+                            .catch((error) => {
+                                console.error('Play failed:', error);
+                                // Try to unmute and play again if autoplay was blocked
+                                if (error.name === 'NotAllowedError') {
+                                    console.log('Autoplay blocked, user interaction required');
+                                    updateAvatarStatus('Click video to play with audio', 'info');
+                                }
+                                reject(error);
+                            });
                     };
 
                     avatarVideo.onended = () => {
@@ -1733,6 +1748,7 @@
     </script>
 </body>
 </html>
+
 
 
 
