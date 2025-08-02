@@ -14,7 +14,116 @@
             script.onload = function() {
                 console.log('D-ID SDK loaded successfully');
                 window.didSDKLoaded = true;
-            };
+            }
+
+        // ===== AVATAR AND VOICE SELECTION =====
+        // Handle avatar and voice selection
+
+        // Avatar URLs mapping
+        const avatarUrls = {
+            'amy': 'https://clips-presenters.d-id.com/amy/image.png',
+            'michael': 'https://clips-presenters.d-id.com/michael/image.png',
+            'sophia': 'https://clips-presenters.d-id.com/sophia/image.png',
+            'david': 'https://clips-presenters.d-id.com/david/image.png',
+            'emma': 'https://clips-presenters.d-id.com/emma/image.png'
+        };
+
+        function updateSelectedAvatar() {
+            const avatarSelect = document.getElementById('avatarSelect');
+            const customDiv = document.getElementById('customAvatarDiv');
+            const customUrl = document.getElementById('customAvatarUrl');
+            
+            if (avatarSelect.value === 'custom') {
+                customDiv.style.display = 'block';
+                selectedAvatarUrl = customUrl.value || selectedAvatarUrl;
+            } else {
+                customDiv.style.display = 'none';
+                selectedAvatarUrl = avatarUrls[avatarSelect.value] || avatarUrls['amy'];
+            }
+            
+            console.log('Selected avatar URL:', selectedAvatarUrl);
+            saveConfig();
+        }
+
+        function updateSelectedVoice() {
+            const voiceSelect = document.getElementById('voiceSelect');
+            const elevenlabsDiv = document.getElementById('elevenlabsVoiceDiv');
+            
+            if (voiceSelect.value === 'elevenlabs') {
+                elevenlabsDiv.style.display = 'block';
+                selectedVoiceConfig = { type: 'elevenlabs', voice_id: '' };
+            } else {
+                elevenlabsDiv.style.display = 'none';
+                const [provider, voiceId] = voiceSelect.value.split('-');
+                selectedVoiceConfig = { type: provider, voice_id: voiceId };
+            }
+            
+            console.log('Selected voice config:', selectedVoiceConfig);
+            saveConfig();
+        }
+
+        // Load ElevenLabs voices for avatar
+        async function loadElevenLabsVoices2() {
+            const apiKey = document.getElementById('elevenlabsApiKey2').value;
+            
+            if (!apiKey) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('https://api.elevenlabs.io/v1/voices', {
+                    method: 'GET',
+                    headers: {
+                        'xi-api-key': apiKey,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                elevenlabsVoices2 = data.voices;
+                
+                // Populate voice dropdown
+                const voiceSelect = document.getElementById('elevenlabsVoiceSelect');
+                voiceSelect.innerHTML = '<option value="">Select a voice...</option>';
+                voiceSelect.disabled = false;
+                
+                elevenlabsVoices2.forEach(voice => {
+                    const option = document.createElement('option');
+                    option.value = voice.voice_id;
+                    option.textContent = `${voice.name} (${voice.labels?.gender || 'Unknown'})`;
+                    voiceSelect.appendChild(option);
+                });
+                
+                console.log('ElevenLabs voices loaded for avatar:', elevenlabsVoices2.length);
+                
+            } catch (error) {
+                console.error('Error loading ElevenLabs voices for avatar:', error);
+            }
+        }
+
+        // Preview avatar and voice
+        async function previewAvatarVoice() {
+            if (!isAvatarInitialized) {
+                showStatus('Please initialize D-ID first', 'error');
+                return;
+            }
+            
+            const previewText = "Hello! I'm your AI patient for today's consultation. How can I help you practice your pharmacy skills?";
+            
+            console.log('Previewing avatar with voice...');
+            updateAvatarStatus('Generating preview...', 'loading');
+            
+            try {
+                await speakWithAvatar(previewText);
+            } catch (error) {
+                console.error('Preview error:', error);
+                updateAvatarStatus('Preview failed', 'error');
+            }
+        };
             script.onerror = function() {
                 console.warn('Primary D-ID SDK failed, trying fallback...');
                 // Fallback to REST API approach
@@ -526,6 +635,74 @@
                             🚀 Initialize Avatar
                         </button>
                     </form>
+                    
+                    <!-- Avatar Selection -->
+                    <div class="form-group" style="margin-top: 20px;">
+                        <label for="avatarSelect">Choose Avatar:</label>
+                        <select id="avatarSelect" onchange="updateSelectedAvatar()">
+                            <option value="amy">Amy (Default Female)</option>
+                            <option value="michael">Michael (Male Professional)</option>
+                            <option value="sophia">Sophia (Young Female)</option>
+                            <option value="david">David (Mature Male)</option>
+                            <option value="emma">Emma (Professional Female)</option>
+                            <option value="custom">Custom URL...</option>
+                        </select>
+                        
+                        <!-- Custom avatar URL input -->
+                        <div id="customAvatarDiv" style="display: none; margin-top: 10px;">
+                            <label for="customAvatarUrl">Custom Avatar Image URL:</label>
+                            <input 
+                                type="url" 
+                                id="customAvatarUrl" 
+                                placeholder="https://example.com/avatar-image.jpg"
+                                style="margin-top: 5px;"
+                            >
+                            <small style="display: block; margin-top: 5px; color: var(--text-secondary); font-size: 12px;">
+                                Use a high-quality portrait image (JPG/PNG)
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <!-- Voice Selection -->
+                    <div class="form-group">
+                        <label for="voiceSelect">Choose Voice:</label>
+                        <select id="voiceSelect" onchange="updateSelectedVoice()">
+                            <option value="microsoft-sara">Sara (Microsoft - Female, Professional)</option>
+                            <option value="microsoft-guy">Guy (Microsoft - Male, Professional)</option>
+                            <option value="microsoft-jenny">Jenny (Microsoft - Female, Friendly)</option>
+                            <option value="microsoft-ryan">Ryan (Microsoft - Male, Clear)</option>
+                            <option value="microsoft-aria">Aria (Microsoft - Female, Natural)</option>
+                            <option value="microsoft-davis">Davis (Microsoft - Male, Deep)</option>
+                            <option value="elevenlabs">ElevenLabs (Premium Voices)</option>
+                        </select>
+                        
+                        <!-- ElevenLabs voice selection -->
+                        <div id="elevenlabsVoiceDiv" style="display: none; margin-top: 10px;">
+                            <label for="elevenlabsVoiceSelect">ElevenLabs Voice:</label>
+                            <input 
+                                type="text" 
+                                id="elevenlabsApiKey2" 
+                                placeholder="Enter ElevenLabs API key"
+                                style="margin-top: 5px;"
+                                onchange="loadElevenLabsVoices2()"
+                            >
+                            <select id="elevenlabsVoiceSelect" disabled style="margin-top: 5px;">
+                                <option value="">Enter API key to load voices...</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Preview button -->
+                    <button 
+                        type="button"
+                        class="btn-secondary" 
+                        onclick="previewAvatarVoice()" 
+                        style="margin-top: 15px; width: 100%;"
+                        disabled
+                        id="previewButton"
+                    >
+                        🎵 Preview Avatar & Voice
+                    </button>
                 </div>
             </div>
             
@@ -652,7 +829,9 @@
         let avatarVideo = null;           // Video element reference
         let currentPresenter = null;      // Selected presenter/avatar
         let isAvatarInitialized = false;  // Track initialization status
-        let defaultPresenterUrl = 'https://clips-presenters.d-id.com/amy/image.png'; // Default avatar
+        let selectedAvatarUrl = 'https://clips-presenters.d-id.com/amy/image.png'; // Selected avatar
+        let selectedVoiceConfig = { type: 'microsoft', voice_id: 'Sara' }; // Selected voice
+        let elevenlabsVoices2 = [];       // Store ElevenLabs voices for avatar
         
         // ===== INITIALIZATION =====
         // This runs when the page loads
@@ -925,6 +1104,9 @@
                     isAvatarInitialized = true;
                     updateAvatarStatus('Avatar initialized (REST API)', 'success');
                     
+                    // Enable preview button
+                    document.getElementById('previewButton').disabled = false;
+                    
                     return true;
                 } else {
                     // Use SDK if available
@@ -937,6 +1119,9 @@
                     console.log('D-ID SDK client initialized successfully');
                     isAvatarInitialized = true;
                     updateAvatarStatus('Avatar initialized (SDK)', 'success');
+                    
+                    // Enable preview button
+                    document.getElementById('previewButton').disabled = false;
                     
                     return true;
                 }
@@ -1015,20 +1200,45 @@
         // Create a new talk using D-ID REST API
         async function createTalk(text) {
             try {
-                const payload = {
-                    script: {
-                        type: 'text',
-                        input: text,
-                        provider: {
+                // Prepare voice configuration based on selection
+                let scriptConfig = {
+                    type: 'text',
+                    input: text
+                };
+
+                // Add voice provider based on selection
+                if (selectedVoiceConfig.type === 'elevenlabs') {
+                    const elevenlabsVoiceId = document.getElementById('elevenlabsVoiceSelect').value;
+                    const elevenlabsApiKey = document.getElementById('elevenlabsApiKey2').value;
+                    
+                    if (elevenlabsVoiceId && elevenlabsApiKey) {
+                        scriptConfig.provider = {
+                            type: 'elevenlabs',
+                            voice_id: elevenlabsVoiceId,
+                            api_key: elevenlabsApiKey
+                        };
+                    } else {
+                        // Fallback to Microsoft if ElevenLabs not configured
+                        scriptConfig.provider = {
                             type: 'microsoft',
                             voice_id: 'Sara'
-                        }
-                    },
+                        };
+                    }
+                } else {
+                    // Use Microsoft voices
+                    scriptConfig.provider = {
+                        type: selectedVoiceConfig.type,
+                        voice_id: selectedVoiceConfig.voice_id
+                    };
+                }
+
+                const payload = {
+                    script: scriptConfig,
                     config: {
                         fluent: true,
                         pad_audio: 0.0
                     },
-                    source_url: defaultPresenterUrl
+                    source_url: selectedAvatarUrl
                 };
 
                 console.log('Creating talk with payload:', payload);
@@ -1891,7 +2101,12 @@
                 submitWebhookUrl: document.getElementById('submitWebhookUrl').value,
                 sheetId: document.getElementById('sheetId').value,
                 sheetName: getSelectedSheetName(),
-                didApiKey: document.getElementById('didApiKey').value
+                didApiKey: document.getElementById('didApiKey').value,
+                selectedAvatar: document.getElementById('avatarSelect').value,
+                customAvatarUrl: document.getElementById('customAvatarUrl').value,
+                selectedVoice: document.getElementById('voiceSelect').value,
+                elevenlabsApiKey2: document.getElementById('elevenlabsApiKey2').value,
+                elevenlabsVoice: document.getElementById('elevenlabsVoiceSelect').value
             };
             localStorage.setItem('pharmacyChatConfig', JSON.stringify(config));
         }
@@ -1904,6 +2119,29 @@
                 document.getElementById('submitWebhookUrl').value = config.submitWebhookUrl || '';
                 document.getElementById('sheetId').value = config.sheetId || '';
                 document.getElementById('didApiKey').value = config.didApiKey || '';
+                
+                // Load avatar and voice settings
+                if (config.selectedAvatar) {
+                    document.getElementById('avatarSelect').value = config.selectedAvatar;
+                    updateSelectedAvatar();
+                }
+                
+                if (config.customAvatarUrl) {
+                    document.getElementById('customAvatarUrl').value = config.customAvatarUrl;
+                }
+                
+                if (config.selectedVoice) {
+                    document.getElementById('voiceSelect').value = config.selectedVoice;
+                    updateSelectedVoice();
+                }
+                
+                if (config.elevenlabsApiKey2) {
+                    document.getElementById('elevenlabsApiKey2').value = config.elevenlabsApiKey2;
+                }
+                
+                if (config.elevenlabsVoice) {
+                    document.getElementById('elevenlabsVoiceSelect').value = config.elevenlabsVoice;
+                }
                 
                 // Try to set sheet name in dropdown
                 const sheetNameDropdown = document.getElementById('sheetName');
@@ -1937,6 +2175,7 @@
     </script>
 </body>
 </html>
+
 
 
 
