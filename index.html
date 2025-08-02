@@ -1194,51 +1194,122 @@
         // Load available voices from D-ID API
         async function loadVoices() {
             try {
-                console.log('Loading available voices from D-ID...');
+                console.log('Loading available voices from D-ID API...');
                 
-                // D-ID voices organized by provider (based on D-ID documentation)
-                const didVoices = {
-                    microsoft: [
-                        { id: 'en-US-JennyNeural', name: 'Jenny (US Female, Friendly)' },
-                        { id: 'en-US-AriaNeural', name: 'Aria (US Female, Conversational)' },
-                        { id: 'en-US-DavisNeural', name: 'Davis (US Male, Professional)' },
-                        { id: 'en-US-TonyNeural', name: 'Tony (US Male, Confident)' },
-                        { id: 'en-US-JasonNeural', name: 'Jason (US Male, Casual)' },
-                        { id: 'en-US-NancyNeural', name: 'Nancy (US Female, Mature)' },
-                        { id: 'en-US-AmberNeural', name: 'Amber (US Female, Warm)' },
-                        { id: 'en-US-BrandonNeural', name: 'Brandon (US Male, Warm)' },
-                        { id: 'en-GB-SoniaNeural', name: 'Sonia (UK Female, Professional)' },
-                        { id: 'en-GB-RyanNeural', name: 'Ryan (UK Male, Professional)' },
-                        { id: 'en-AU-NatashaNeural', name: 'Natasha (AU Female, Clear)' },
-                        { id: 'en-AU-WilliamNeural', name: 'William (AU Male, Clear)' }
-                    ],
-                    amazon: [
-                        { id: 'Joanna', name: 'Joanna (US Female, Clear)' },
-                        { id: 'Matthew', name: 'Matthew (US Male, Clear)' },
-                        { id: 'Amy', name: 'Amy (UK Female, Clear)' },
-                        { id: 'Brian', name: 'Brian (UK Male, Clear)' },
-                        { id: 'Emma', name: 'Emma (UK Female, Friendly)' },
-                        { id: 'Olivia', name: 'Olivia (AU Female, Professional)' },
-                        { id: 'Kendra', name: 'Kendra (US Female, Professional)' },
-                        { id: 'Kevin', name: 'Kevin (US Male, Professional)' },
-                        { id: 'Salli', name: 'Salli (US Female, Conversational)' },
-                        { id: 'Joey', name: 'Joey (US Male, Conversational)' }
-                    ],
-                    elevenlabs: [
-                        { id: 'Rachel', name: 'Rachel (Female, Natural)' },
-                        { id: 'Drew', name: 'Drew (Male, Natural)' },
-                        { id: 'Clyde', name: 'Clyde (Male, Warm)' },
-                        { id: 'Paul', name: 'Paul (Male, Confident)' },
-                        { id: 'Domi', name: 'Domi (Female, Confident)' },
-                        { id: 'Dave', name: 'Dave (Male, Conversational)' },
-                        { id: 'Fin', name: 'Fin (Male, Young)' },
-                        { id: 'Sarah', name: 'Sarah (Female, Professional)' },
-                        { id: 'Antoni', name: 'Antoni (Male, Professional)' },
-                        { id: 'Thomas', name: 'Thomas (Male, Calm)' }
-                    ]
-                };
+                // Try to fetch voices from D-ID API
+                let didVoices = {};
+                
+                try {
+                    // Fetch Microsoft voices
+                    const msResponse = await fetch('https://api.d-id.com/tts/voices?provider=microsoft', {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Basic ${didApiKey}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (msResponse.ok) {
+                        const msData = await msResponse.json();
+                        console.log('Microsoft voices from API:', msData);
+                        didVoices.microsoft = msData.voices || msData || [];
+                    }
+                    
+                    // Fetch Amazon voices
+                    const amzResponse = await fetch('https://api.d-id.com/tts/voices?provider=amazon', {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Basic ${didApiKey}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (amzResponse.ok) {
+                        const amzData = await amzResponse.json();
+                        console.log('Amazon voices from API:', amzData);
+                        didVoices.amazon = amzData.voices || amzData || [];
+                    }
+                    
+                    // Fetch ElevenLabs voices
+                    const elResponse = await fetch('https://api.d-id.com/tts/voices?provider=elevenlabs', {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Basic ${didApiKey}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (elResponse.ok) {
+                        const elData = await elResponse.json();
+                        console.log('ElevenLabs voices from API:', elData);
+                        didVoices.elevenlabs = elData.voices || elData || [];
+                    }
+                    
+                } catch (apiError) {
+                    console.log('Voice API calls failed, using fallback voices:', apiError);
+                }
+                
+                // Fallback to known D-ID voices if API fails
+                if (Object.keys(didVoices).length === 0 || 
+                    !didVoices.microsoft || didVoices.microsoft.length === 0) {
+                    console.log('Using fallback voice list');
+                    didVoices = {
+                        microsoft: [
+                            { id: 'en-US-JennyNeural', name: 'Jenny (US Female, Friendly)', language: 'en-US', gender: 'Female' },
+                            { id: 'en-US-AriaNeural', name: 'Aria (US Female, Conversational)', language: 'en-US', gender: 'Female' },
+                            { id: 'en-US-DavisNeural', name: 'Davis (US Male, Professional)', language: 'en-US', gender: 'Male' },
+                            { id: 'en-US-TonyNeural', name: 'Tony (US Male, Confident)', language: 'en-US', gender: 'Male' },
+                            { id: 'en-US-JasonNeural', name: 'Jason (US Male, Casual)', language: 'en-US', gender: 'Male' },
+                            { id: 'en-US-NancyNeural', name: 'Nancy (US Female, Mature)', language: 'en-US', gender: 'Female' },
+                            { id: 'en-US-AmberNeural', name: 'Amber (US Female, Warm)', language: 'en-US', gender: 'Female' },
+                            { id: 'en-US-BrandonNeural', name: 'Brandon (US Male, Warm)', language: 'en-US', gender: 'Male' },
+                            { id: 'en-GB-SoniaNeural', name: 'Sonia (UK Female, Professional)', language: 'en-GB', gender: 'Female' },
+                            { id: 'en-GB-RyanNeural', name: 'Ryan (UK Male, Professional)', language: 'en-GB', gender: 'Male' },
+                            { id: 'en-AU-NatashaNeural', name: 'Natasha (AU Female, Clear)', language: 'en-AU', gender: 'Female' },
+                            { id: 'en-AU-WilliamNeural', name: 'William (AU Male, Clear)', language: 'en-AU', gender: 'Male' }
+                        ],
+                        amazon: [
+                            { id: 'Joanna', name: 'Joanna (US Female, Clear)', language: 'en-US', gender: 'Female' },
+                            { id: 'Matthew', name: 'Matthew (US Male, Clear)', language: 'en-US', gender: 'Male' },
+                            { id: 'Amy', name: 'Amy (UK Female, Clear)', language: 'en-GB', gender: 'Female' },
+                            { id: 'Brian', name: 'Brian (UK Male, Clear)', language: 'en-GB', gender: 'Male' },
+                            { id: 'Emma', name: 'Emma (UK Female, Friendly)', language: 'en-GB', gender: 'Female' },
+                            { id: 'Olivia', name: 'Olivia (AU Female, Professional)', language: 'en-AU', gender: 'Female' },
+                            { id: 'Kendra', name: 'Kendra (US Female, Professional)', language: 'en-US', gender: 'Female' },
+                            { id: 'Kevin', name: 'Kevin (US Male, Professional)', language: 'en-US', gender: 'Male' },
+                            { id: 'Salli', name: 'Salli (US Female, Conversational)', language: 'en-US', gender: 'Female' },
+                            { id: 'Joey', name: 'Joey (US Male, Conversational)', language: 'en-US', gender: 'Male' }
+                        ],
+                        elevenlabs: [
+                            { id: 'Rachel', name: 'Rachel (Female, Natural)', gender: 'Female' },
+                            { id: 'Drew', name: 'Drew (Male, Natural)', gender: 'Male' },
+                            { id: 'Clyde', name: 'Clyde (Male, Warm)', gender: 'Male' },
+                            { id: 'Paul', name: 'Paul (Male, Confident)', gender: 'Male' },
+                            { id: 'Domi', name: 'Domi (Female, Confident)', gender: 'Female' },
+                            { id: 'Dave', name: 'Dave (Male, Conversational)', gender: 'Male' },
+                            { id: 'Fin', name: 'Fin (Male, Young)', gender: 'Male' },
+                            { id: 'Sarah', name: 'Sarah (Female, Professional)', gender: 'Female' },
+                            { id: 'Antoni', name: 'Antoni (Male, Professional)', gender: 'Male' },
+                            { id: 'Thomas', name: 'Thomas (Male, Calm)', gender: 'Male' }
+                        ]
+                    };
+                }
+                
+                // Process API voices if we got them
+                if (didVoices.microsoft && didVoices.microsoft.length > 0 && didVoices.microsoft[0].voice_id) {
+                    // API format: convert to our format
+                    Object.keys(didVoices).forEach(provider => {
+                        didVoices[provider] = didVoices[provider].map(voice => ({
+                            id: voice.voice_id || voice.id,
+                            name: voice.display_name || voice.name || `${voice.voice_id} (${voice.gender || 'Unknown'})`,
+                            language: voice.language || voice.locale,
+                            gender: voice.gender
+                        }));
+                    });
+                }
                 
                 availableVoices = didVoices;
+                console.log('Final voices object:', availableVoices);
                 
                 // Load voices for current provider
                 loadVoicesForProvider();
@@ -1408,16 +1479,25 @@
 
                 // Add the correct source parameter based on selection
                 if (selectedAvatarUrl && selectedAvatarUrl !== '') {
-                    // If it's a presenter ID (from the dropdown), use presenter_id
-                    if (selectedAvatarUrl.includes('-')) {
+                    // Check if it looks like a presenter ID (contains special characters or specific patterns)
+                    if (selectedAvatarUrl.includes('@') || selectedAvatarUrl.includes('_') || 
+                        selectedAvatarUrl.match(/^[a-zA-Z0-9_-]+$/)) {
+                        // It's a presenter ID
                         payload.presenter_id = selectedAvatarUrl;
-                    } else {
-                        // Otherwise use source_url
+                        console.log('Using presenter_id:', selectedAvatarUrl);
+                    } else if (selectedAvatarUrl.match(/\.(jpg|jpeg|png|gif)(\?|$)/i)) {
+                        // It's an image URL
                         payload.source_url = selectedAvatarUrl;
+                        console.log('Using source_url:', selectedAvatarUrl);
+                    } else {
+                        // Fallback: try as presenter_id first
+                        payload.presenter_id = selectedAvatarUrl;
+                        console.log('Assuming presenter_id for:', selectedAvatarUrl);
                     }
                 } else {
                     // Fallback to default
                     payload.source_url = defaultPresenterUrl;
+                    console.log('Using default presenter URL');
                 }
 
                 console.log('Creating talk with payload:', payload);
@@ -1434,6 +1514,29 @@
                 if (!response.ok) {
                     const errorText = await response.text();
                     console.error('D-ID API error response:', errorText);
+                    
+                    // If presenter_id failed, try with source_url instead
+                    if (response.status === 400 && payload.presenter_id && !payload.source_url) {
+                        console.log('Presenter ID failed, retrying with default source URL...');
+                        delete payload.presenter_id;
+                        payload.source_url = defaultPresenterUrl;
+                        
+                        const retryResponse = await fetch('https://api.d-id.com/talks', {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Basic ${didApiKey}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(payload)
+                        });
+                        
+                        if (retryResponse.ok) {
+                            const retryResult = await retryResponse.json();
+                            console.log('Retry successful with default avatar:', retryResult);
+                            return retryResult;
+                        }
+                    }
+                    
                     throw new Error(`API request failed: ${response.status} - ${errorText}`);
                 }
 
@@ -2353,4 +2456,5 @@
     </script>
 </body>
 </html>
+
 
