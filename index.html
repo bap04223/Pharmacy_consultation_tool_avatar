@@ -1081,102 +1081,148 @@
 
         // ===== AVATAR AND VOICE SELECTION FUNCTIONS =====
         
-        // Load available avatars from D-ID
+        // Load available avatars from D-ID API
         async function loadAvatars() {
             try {
-                console.log('Loading available avatars...');
+                console.log('Loading available avatars from D-ID...');
+                updateAvatarStatus('Loading avatars...', 'loading');
                 
-                // D-ID provides some default presenters
-                const defaultAvatars = [
-                    {
-                        id: 'amy',
-                        name: 'Amy (Professional Woman)',
-                        image_url: 'https://clips-presenters.d-id.com/amy/image.png'
-                    },
-                    {
-                        id: 'monica',
-                        name: 'Monica (Young Professional)',
-                        image_url: 'https://clips-presenters.d-id.com/monica/image.png'
-                    },
-                    {
-                        id: 'eric',
-                        name: 'Eric (Professional Man)', 
-                        image_url: 'https://clips-presenters.d-id.com/eric/image.png'
-                    },
-                    {
-                        id: 'william',
-                        name: 'William (Mature Professional)',
-                        image_url: 'https://clips-presenters.d-id.com/william/image.png'
-                    },
-                    {
-                        id: 'ava',
-                        name: 'Ava (Young Woman)',
-                        image_url: 'https://clips-presenters.d-id.com/ava/image.png'
-                    },
-                    {
-                        id: 'julia',
-                        name: 'Julia (Healthcare Professional)',
-                        image_url: 'https://clips-presenters.d-id.com/julia/image.png'
+                // Try to fetch presenters from D-ID API
+                let avatars = [];
+                
+                try {
+                    const response = await fetch('https://api.d-id.com/clips/presenters', {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Basic ${didApiKey}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        console.log('D-ID API presenters response:', data);
+                        avatars = data.presenters || data || [];
+                    } else {
+                        console.log('API call failed, using default avatars');
+                        throw new Error('API call failed');
                     }
-                ];
+                } catch (apiError) {
+                    console.log('Using fallback avatars due to API error:', apiError);
+                }
                 
-                availableAvatars = defaultAvatars;
+                // Fallback to known D-ID presenters if API fails
+                if (!avatars || avatars.length === 0) {
+                    avatars = [
+                        {
+                            presenter_id: 'amy-jcwCkr1grs',
+                            display_name: 'Amy',
+                            gender: 'female',
+                            thumbnail_url: 'https://clips-presenters.d-id.com/amy/image.png'
+                        },
+                        {
+                            presenter_id: 'monica-6Ty8PhOP4W',
+                            display_name: 'Monica',
+                            gender: 'female',
+                            thumbnail_url: 'https://clips-presenters.d-id.com/monica/image.png'
+                        },
+                        {
+                            presenter_id: 'eric-jbWJZhVChy',
+                            display_name: 'Eric',
+                            gender: 'male',
+                            thumbnail_url: 'https://clips-presenters.d-id.com/eric/image.png'
+                        },
+                        {
+                            presenter_id: 'william-jHRdQJbx2X',
+                            display_name: 'William',
+                            gender: 'male',
+                            thumbnail_url: 'https://clips-presenters.d-id.com/william/image.png'
+                        },
+                        {
+                            presenter_id: 'ava-i_TQGg6hbR',
+                            display_name: 'Ava',
+                            gender: 'female',
+                            thumbnail_url: 'https://clips-presenters.d-id.com/ava/image.png'
+                        },
+                        {
+                            presenter_id: 'julia-OTF9hkQOOV',
+                            display_name: 'Julia',
+                            gender: 'female',
+                            thumbnail_url: 'https://clips-presenters.d-id.com/julia/image.png'
+                        }
+                    ];
+                }
+                
+                availableAvatars = avatars;
                 
                 // Populate avatar dropdown
                 const avatarSelect = document.getElementById('avatarSelect');
                 avatarSelect.innerHTML = '<option value="">Select an avatar...</option>';
                 
-                defaultAvatars.forEach(avatar => {
+                avatars.forEach(avatar => {
                     const option = document.createElement('option');
-                    option.value = avatar.image_url;
-                    option.textContent = avatar.name;
-                    option.dataset.id = avatar.id;
+                    // Use the actual presenter data structure
+                    const avatarId = avatar.presenter_id || avatar.id;
+                    const avatarName = avatar.display_name || avatar.name;
+                    const avatarGender = avatar.gender ? ` (${avatar.gender})` : '';
+                    const thumbnailUrl = avatar.thumbnail_url || avatar.image_url;
+                    
+                    option.value = avatarId;
+                    option.textContent = `${avatarName}${avatarGender}`;
+                    option.dataset.thumbnail = thumbnailUrl;
                     avatarSelect.appendChild(option);
                 });
                 
-                // Set default selection
-                avatarSelect.value = defaultPresenterUrl;
-                selectedAvatarUrl = defaultPresenterUrl;
-                onAvatarChange();
+                // Set default selection (Amy)
+                const defaultAvatar = avatars.find(a => (a.display_name || a.name) === 'Amy');
+                if (defaultAvatar) {
+                    avatarSelect.value = defaultAvatar.presenter_id || defaultAvatar.id;
+                    selectedAvatarUrl = defaultAvatar.presenter_id || defaultAvatar.id;
+                    onAvatarChange();
+                }
                 
-                console.log('Avatars loaded successfully');
+                console.log('Avatars loaded successfully:', avatars.length);
+                updateAvatarStatus('Avatars loaded', 'success');
                 
             } catch (error) {
                 console.error('Error loading avatars:', error);
                 showStatus('Error loading avatars', 'error');
+                updateAvatarStatus('Error loading avatars', 'error');
             }
         }
         
-        // Load available voices from D-ID
+        // Load available voices from D-ID API
         async function loadVoices() {
             try {
-                console.log('Loading available voices...');
+                console.log('Loading available voices from D-ID...');
                 
-                // Voice options by provider
-                const voiceOptions = {
+                // D-ID voices organized by provider (based on D-ID documentation)
+                const didVoices = {
                     microsoft: [
-                        { id: 'Sara', name: 'Sara (Female, Professional)' },
-                        { id: 'Jenny', name: 'Jenny (Female, Friendly)' },
-                        { id: 'Aria', name: 'Aria (Female, Conversational)' },
-                        { id: 'Davis', name: 'Davis (Male, Professional)' },
-                        { id: 'Tony', name: 'Tony (Male, Confident)' },
-                        { id: 'Jason', name: 'Jason (Male, Casual)' },
-                        { id: 'Nancy', name: 'Nancy (Female, Mature)' },
-                        { id: 'Guy', name: 'Guy (Male, Mature)' },
-                        { id: 'Amber', name: 'Amber (Female, Warm)' },
-                        { id: 'Brandon', name: 'Brandon (Male, Warm)' }
+                        { id: 'en-US-JennyNeural', name: 'Jenny (US Female, Friendly)' },
+                        { id: 'en-US-AriaNeural', name: 'Aria (US Female, Conversational)' },
+                        { id: 'en-US-DavisNeural', name: 'Davis (US Male, Professional)' },
+                        { id: 'en-US-TonyNeural', name: 'Tony (US Male, Confident)' },
+                        { id: 'en-US-JasonNeural', name: 'Jason (US Male, Casual)' },
+                        { id: 'en-US-NancyNeural', name: 'Nancy (US Female, Mature)' },
+                        { id: 'en-US-AmberNeural', name: 'Amber (US Female, Warm)' },
+                        { id: 'en-US-BrandonNeural', name: 'Brandon (US Male, Warm)' },
+                        { id: 'en-GB-SoniaNeural', name: 'Sonia (UK Female, Professional)' },
+                        { id: 'en-GB-RyanNeural', name: 'Ryan (UK Male, Professional)' },
+                        { id: 'en-AU-NatashaNeural', name: 'Natasha (AU Female, Clear)' },
+                        { id: 'en-AU-WilliamNeural', name: 'William (AU Male, Clear)' }
                     ],
                     amazon: [
-                        { id: 'Joanna', name: 'Joanna (Female, Clear)' },
-                        { id: 'Matthew', name: 'Matthew (Male, Clear)' },
-                        { id: 'Amy', name: 'Amy (Female, British)' },
-                        { id: 'Brian', name: 'Brian (Male, British)' },
-                        { id: 'Emma', name: 'Emma (Female, British)' },
-                        { id: 'Olivia', name: 'Olivia (Female, Australian)' },
-                        { id: 'Ivy', name: 'Ivy (Female, Child)' },
-                        { id: 'Justin', name: 'Justin (Male, Child)' },
-                        { id: 'Kendra', name: 'Kendra (Female, Professional)' },
-                        { id: 'Kevin', name: 'Kevin (Male, Professional)' }
+                        { id: 'Joanna', name: 'Joanna (US Female, Clear)' },
+                        { id: 'Matthew', name: 'Matthew (US Male, Clear)' },
+                        { id: 'Amy', name: 'Amy (UK Female, Clear)' },
+                        { id: 'Brian', name: 'Brian (UK Male, Clear)' },
+                        { id: 'Emma', name: 'Emma (UK Female, Friendly)' },
+                        { id: 'Olivia', name: 'Olivia (AU Female, Professional)' },
+                        { id: 'Kendra', name: 'Kendra (US Female, Professional)' },
+                        { id: 'Kevin', name: 'Kevin (US Male, Professional)' },
+                        { id: 'Salli', name: 'Salli (US Female, Conversational)' },
+                        { id: 'Joey', name: 'Joey (US Male, Conversational)' }
                     ],
                     elevenlabs: [
                         { id: 'Rachel', name: 'Rachel (Female, Natural)' },
@@ -1192,12 +1238,12 @@
                     ]
                 };
                 
-                availableVoices = voiceOptions;
+                availableVoices = didVoices;
                 
                 // Load voices for current provider
                 loadVoicesForProvider();
                 
-                console.log('Voices loaded successfully');
+                console.log('D-ID voices loaded successfully');
                 
             } catch (error) {
                 console.error('Error loading voices:', error);
@@ -1220,10 +1266,10 @@
                     voiceSelect.appendChild(option);
                 });
                 
-                // Set default selection
+                // Set default selection based on provider
                 if (provider === 'microsoft') {
-                    voiceSelect.value = 'Sara';
-                    selectedVoiceId = 'Sara';
+                    voiceSelect.value = 'en-US-JennyNeural';
+                    selectedVoiceId = 'en-US-JennyNeural';
                 } else if (provider === 'amazon') {
                     voiceSelect.value = 'Joanna';
                     selectedVoiceId = 'Joanna';
@@ -1233,6 +1279,7 @@
                 }
                 
                 selectedVoiceProvider = provider;
+                onVoiceChange(); // Save the selection
             }
         }
         
@@ -1243,8 +1290,22 @@
             
             if (avatarSelect.value) {
                 selectedAvatarUrl = avatarSelect.value;
-                avatarPreview.src = selectedAvatarUrl;
-                avatarPreview.style.display = 'block';
+                
+                // Get the thumbnail URL from the selected option
+                const selectedOption = avatarSelect.options[avatarSelect.selectedIndex];
+                const thumbnailUrl = selectedOption.dataset.thumbnail;
+                
+                if (thumbnailUrl) {
+                    avatarPreview.src = thumbnailUrl;
+                    avatarPreview.style.display = 'block';
+                    avatarPreview.onerror = function() {
+                        console.warn('Avatar preview image failed to load:', thumbnailUrl);
+                        this.style.display = 'none';
+                    };
+                } else {
+                    avatarPreview.style.display = 'none';
+                }
+                
                 saveConfig();
                 console.log('Avatar changed to:', selectedAvatarUrl);
             } else {
@@ -1342,9 +1403,22 @@
                     config: {
                         fluent: true,
                         pad_audio: 0.0
-                    },
-                    source_url: selectedAvatarUrl || defaultPresenterUrl
+                    }
                 };
+
+                // Add the correct source parameter based on selection
+                if (selectedAvatarUrl && selectedAvatarUrl !== '') {
+                    // If it's a presenter ID (from the dropdown), use presenter_id
+                    if (selectedAvatarUrl.includes('-')) {
+                        payload.presenter_id = selectedAvatarUrl;
+                    } else {
+                        // Otherwise use source_url
+                        payload.source_url = selectedAvatarUrl;
+                    }
+                } else {
+                    // Fallback to default
+                    payload.source_url = defaultPresenterUrl;
+                }
 
                 console.log('Creating talk with payload:', payload);
 
@@ -2279,44 +2353,4 @@
     </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
