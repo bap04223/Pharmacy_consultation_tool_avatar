@@ -863,13 +863,20 @@
                     saveConfig();
                     
                     console.log('Avatar selected:', avatarData);
-                    updateAvatarStatus(`Avatar selected: ${avatarData.name}`, 'info');
+                    updateAvatarStatus(`Avatar selected: ${avatarData.name} - Click Initialize to use`, 'info');
+                    
+                    // If D-ID is already initialized, warn user to re-initialize
+                    if (isAvatarInitialized) {
+                        updateAvatarStatus(`Avatar changed to ${avatarData.name} - Click Initialize to apply`, 'warning');
+                        isAvatarInitialized = false; // Force re-initialization
+                    }
                 }
             } else {
                 // Hide preview if no selection
                 avatarPreview.style.display = 'none';
                 selectedAvatarUrl = '';
                 updateAvatarStatus('Select an avatar to continue', 'info');
+                isAvatarInitialized = false; // Reset initialization status
             }
         }
         
@@ -1098,7 +1105,9 @@
                     throw new Error('Please select an avatar first');
                 }
                 
-                // Update current presenter URL
+                console.log('Initializing with avatar:', selectedAvatar);
+                
+                // Update current presenter URL to selected avatar
                 defaultPresenterUrl = selectedAvatar.imageUrl;
                 selectedAvatarUrl = selectedAvatar.imageUrl;
                 
@@ -1116,15 +1125,16 @@
                     didClient = {
                         apiKey: didApiKey,
                         baseURL: 'https://api.d-id.com',
-                        method: 'rest'
+                        method: 'rest',
+                        selectedAvatar: selectedAvatar // Store avatar info in client
                     };
                     
                     // Test the API key by making a simple request
                     await testDIDConnection();
                     
-                    console.log('D-ID REST API initialized successfully');
+                    console.log('D-ID REST API initialized successfully with avatar:', selectedAvatar.name);
                     isAvatarInitialized = true;
-                    updateAvatarStatus(`Avatar initialized: ${selectedAvatar.name} (REST API)`, 'success');
+                    updateAvatarStatus(`${selectedAvatar.name} initialized (REST API)`, 'success');
                     
                     return true;
                 } else {
@@ -1135,9 +1145,9 @@
                         }
                     });
                     
-                    console.log('D-ID SDK client initialized successfully');
+                    console.log('D-ID SDK client initialized successfully with avatar:', selectedAvatar.name);
                     isAvatarInitialized = true;
-                    updateAvatarStatus(`Avatar initialized: ${selectedAvatar.name} (SDK)`, 'success');
+                    updateAvatarStatus(`${selectedAvatar.name} initialized (SDK)`, 'success');
                     
                     return true;
                 }
@@ -1178,18 +1188,28 @@
         async function speakWithAvatar(text) {
             if (!isAvatarInitialized || !didApiKey) {
                 console.log('Avatar not initialized, skipping speech');
+                updateAvatarStatus('Avatar not initialized - please initialize first', 'error');
+                return;
+            }
+
+            // Verify avatar is still selected
+            const selectedAvatar = getSelectedAvatar();
+            if (!selectedAvatar) {
+                console.error('No avatar selected for speech generation');
+                updateAvatarStatus('No avatar selected - please select an avatar', 'error');
                 return;
             }
 
             try {
                 console.log('Generating avatar speech for:', text);
-                updateAvatarStatus('Generating avatar speech...', 'loading');
+                console.log('Using avatar:', selectedAvatar.name, 'with voice:', selectedAvatar.voice);
+                updateAvatarStatus(`Generating ${selectedAvatar.name} speech...`, 'loading');
 
-                // Create talk using D-ID REST API
+                // Create talk using D-ID REST API with selected avatar
                 const talkResponse = await createTalk(text);
                 
                 if (talkResponse && talkResponse.id) {
-                    console.log('Talk created successfully:', talkResponse.id);
+                    console.log('Talk created successfully with ID:', talkResponse.id);
                     
                     // Wait for video generation to complete
                     const videoUrl = await waitForTalkCompletion(talkResponse.id);
@@ -1199,7 +1219,7 @@
                         await playAvatarVideo(videoUrl);
                     }
                 } else {
-                    throw new Error('Failed to create talk');
+                    throw new Error('Failed to create talk - no response ID received');
                 }
 
             } catch (error) {
@@ -1208,7 +1228,12 @@
                 
                 // Reset status after a delay
                 setTimeout(() => {
-                    updateAvatarStatus('Avatar ready', 'info');
+                    const currentAvatar = getSelectedAvatar();
+                    if (currentAvatar) {
+                        updateAvatarStatus(`${currentAvatar.name} ready`, 'info');
+                    } else {
+                        updateAvatarStatus('Avatar ready', 'info');
+                    }
                 }, 3000);
             }
         }
@@ -1217,8 +1242,18 @@
         async function createTalk(text) {
             try {
                 const selectedAvatar = getSelectedAvatar();
-                const presenterUrl = selectedAvatar ? selectedAvatar.imageUrl : defaultPresenterUrl;
-                const voiceId = selectedAvatar ? selectedAvatar.voice : 'Sara';
+                
+                // Ensure we have a valid avatar selection
+                if (!selectedAvatar) {
+                    throw new Error('No avatar selected. Please select an avatar first.');
+                }
+                
+                const presenterUrl = selectedAvatar.imageUrl;
+                const voiceId = selectedAvatar.voice;
+                
+                console.log('Selected avatar for talk:', selectedAvatar);
+                console.log('Using presenter URL:', presenterUrl);
+                console.log('Using voice ID:', voiceId);
                 
                 const payload = {
                     script: {
@@ -2172,6 +2207,7 @@
     </script>
 </body>
 </html>
+
 
 
 
