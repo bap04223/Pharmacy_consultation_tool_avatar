@@ -1959,7 +1959,193 @@ async function submitConversation() {
         }
     }
 }
-
+ // ===== GOOGLE SHEETS INTEGRATION =====
+        // Load sheet names from Google Sheets
+        
+        async function loadSheetNames() {
+            const sheetId = document.getElementById('sheetId').value;
+            
+            if (!sheetId) {
+                showStatus('Please enter Sheet ID first', 'error');
+                return;
+            }
+            
+            showStatus('Loading sheet names...', 'info');
+            
+            try {
+                // NOTE: You need to replace YOUR_API_KEY with your actual Google Sheets API key
+                // Get your API key from: https://console.cloud.google.com/apis/credentials
+                const apiKey = 'AIzaSyDCrWAPXe6eYugvmnO1eJb7-S4QXQj3EgQ'; // REPLACE THIS!
+                
+                // Make API call to get spreadsheet metadata including sheet names
+                const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets.properties.title&key=${apiKey}`;
+                
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Extract sheet names from the response
+                const sheetNames = data.sheets.map(sheet => sheet.properties.title);
+                console.log('Found sheets:', sheetNames);
+                
+                populateSheetNameDropdown(sheetNames);
+                showStatus(`Found ${sheetNames.length} sheets`, 'success');
+                
+            } catch (error) {
+                console.error('Error loading sheet names:', error);
+                
+                // If API call fails, show manual input option
+                showStatus('Could not load sheet names automatically. Enter manually below.', 'error');
+                
+                // Enable the dropdown and add a manual entry option
+                const select = document.getElementById('sheetName');
+                select.disabled = false;
+                select.innerHTML = '<option value="">Enter sheet name manually below...</option>';
+            }
+        }
+        
+        // Populate sheet name dropdown
+        function populateSheetNameDropdown(sheetNames) {
+            const select = document.getElementById('sheetName');
+            select.innerHTML = '<option value="">Select a sheet...</option>';
+            select.disabled = false;
+            
+            sheetNames.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                select.appendChild(option);
+            });
+            
+            // Auto-load sheet data when selection changes
+            select.addEventListener('change', function() {
+                if (this.value) {
+                    saveConfig(); // Save the selection
+                    loadSheetData(); // Automatically load the data
+                }
+            });
+        }
+        
+        // Get selected sheet name (from dropdown only)
+        function getSelectedSheetName() {
+            const dropdown = document.getElementById('sheetName');
+            return dropdown.value;
+        }
+        
+        // Load data from Google Sheets
+        async function loadSheetData() {
+            const sheetId = document.getElementById('sheetId').value;
+            const sheetName = getSelectedSheetName();
+            
+            if (!sheetId || !sheetName) {
+                showStatus('Please enter Sheet ID and select/enter Sheet Name', 'error');
+                return;
+            }
+            
+            showStatus(`Loading data from sheet: ${sheetName}...`, 'info');
+            
+            try {
+                // NOTE: You need to replace YOUR_API_KEY with your actual Google Sheets API key
+                const apiKey = 'AIzaSyDCrWAPXe6eYugvmnO1eJb7-S4QXQj3EgQ'; // REPLACE THIS!
+                
+                // Construct Google Sheets API URL for the specific sheet
+                const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(sheetName)}?key=${apiKey}`;
+                
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Process the actual sheet data
+                if (data.values && data.values.length > 0) {
+                    sheetData = data.values;
+                    populateScenarioDropdown();
+                    showStatus(`Loaded ${data.values.length - 1} scenarios from ${sheetName}`, 'success');
+                } else {
+                    showStatus('No data found in the selected sheet', 'error');
+                }
+                
+            } catch (error) {
+                console.error('Error loading sheet:', error);
+                showStatus('Error loading sheet data. Check console for details.', 'error');
+            }
+        }
+        
+        // Populate the scenario selection dropdown
+        function populateScenarioDropdown() {
+            const select = document.getElementById('scenarioSelect');
+            select.innerHTML = '<option value="">Select a scenario...</option>';
+            select.disabled = false;
+            
+            // Skip header row, process all data rows
+            for (let i = 1; i < sheetData.length; i++) {
+                const row = sheetData[i];
+                const option = document.createElement('option');
+                option.value = i;
+                // Use column A (index 0) for the scenario name
+                option.textContent = `${i}. ${row[0]}`;
+                select.appendChild(option);
+            }
+            
+            // Clear any existing event listeners
+            select.removeEventListener('change', handleScenarioChange);
+            
+            // Add change event listener
+            select.addEventListener('change', handleScenarioChange);
+        }
+        
+        function handleScenarioChange(e) {
+            if (e.target.value) {
+                selectScenario(parseInt(e.target.value));
+            }
+        }
+        
+        // Handle scenario selection
+        function selectScenario(rowIndex) {
+            const headers = sheetData[0];
+            const row = sheetData[rowIndex];
+            
+            // Create scenario object
+            currentScenario = {};
+            headers.forEach((header, index) => {
+                currentScenario[header] = row[index];
+            });
+            
+            console.log('Selected scenario:', currentScenario);
+            showStatus(`Scenario loaded: ${currentScenario['Patient Name']}`, 'success');
+            
+            // Clear previous conversation
+            clearChat();
+            
+            // Add initial message
+            addMessage('Scenario loaded. Hold the talk button to start the consultation.', 'ai');
+        }
+        
+        // Select a random scenario
+        function selectRandomScenario() {
+            if (sheetData.length <= 1) {
+                showStatus('Please load sheet data first', 'error');
+                return;
+            }
+            
+            // Generate random index (skip header row at index 0)
+            const randomIndex = Math.floor(Math.random() * (sheetData.length - 1)) + 1;
+            
+            // Update dropdown to show selected scenario
+            document.getElementById('scenarioSelect').value = randomIndex;
+            
+            // Select the scenario
+            selectScenario(randomIndex);
+            
+            showStatus(`Randomly selected: ${sheetData[randomIndex][0]}`, 'success');
+        }
 // Cleanup function for page unload
 window.addEventListener('beforeunload', function() {
     if (isStreamConnected) {
@@ -1969,6 +2155,7 @@ window.addEventListener('beforeunload', function() {
 <script>
 </body>
 </html>
+
 
 
 
