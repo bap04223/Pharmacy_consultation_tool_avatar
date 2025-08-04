@@ -814,7 +814,7 @@
         </div>
     </div>
 
-    <!-- JavaScript code for D-ID Stream API functionality -->
+        <!-- JavaScript code for D-ID Stream API functionality -->
     <script>
         // ===== GLOBAL VARIABLES =====
         // These store the state of our application
@@ -1140,14 +1140,30 @@
                 
                 if (sessionResponse && sessionResponse.id) {
                     streamSessionId = sessionResponse.id;
-                    streamUrl = sessionResponse.session_url;
+                    // Store the session ID from response (used for server stickiness)
+                    const sessionIdFromResponse = sessionResponse.session_id;
                     
                     console.log('Stream session created:', streamSessionId);
-                    console.log('Stream URL:', streamUrl);
+                    console.log('Session ID for stickiness:', sessionIdFromResponse);
+                    
+                    // Store the SDP offer and ICE servers from response
+                    const sdpOffer = sessionResponse.offer;
+                    const iceServers = sessionResponse.ice_servers || streamIceServers;
+                    
+                    console.log('SDP Offer received:', sdpOffer);
+                    console.log('ICE Servers:', iceServers);
                     
                     isStreamInitialized = true;
                     updateAvatarStatus('Stream initialized - Ready to connect', 'connected');
                     updateStreamStatus('disconnected', 'Stream session ready');
+                    
+                    // Store session data for connection
+                    window.streamSessionData = {
+                        streamId: streamSessionId,
+                        sessionId: sessionIdFromResponse,
+                        offer: sdpOffer,
+                        iceServers: iceServers
+                    };
                     
                     // Show connect button, hide initialize button
                     document.getElementById('initStreamBtn').style.display = 'none';
@@ -1199,9 +1215,8 @@
                 const result = await response.json();
                 console.log('Stream session creation response:', result);
                 
-                // Fix: Extract session URL properly - D-ID streams don't have a direct session_url
-                // The connection is handled via WebRTC with the session ID
-                result.session_url = `wss://api.d-id.com/talks/streams/${result.id}/ice`;
+                // D-ID Stream API returns: { id, offer, session_id, ice_servers }
+                // No need to construct a session_url - WebRTC connection is handled via API calls
                 
                 return result;
 
@@ -1215,7 +1230,7 @@
         // Handle WebRTC connection and streaming
 
         async function connectStream() {
-            if (!isStreamInitialized || !streamSessionId) {
+            if (!isStreamInitialized || !streamSessionId || !window.streamSessionData) {
                 showStatus('Stream not initialized', 'error');
                 return;
             }
@@ -1225,32 +1240,40 @@
                 updateAvatarStatus('Connecting to stream...', 'loading');
                 updateStreamStatus('connecting', 'Establishing WebRTC connection...');
 
-                // Use ICE servers from the stream session response if available
-                const iceConfig = {
-                    iceServers: streamIceServers
-                };
+                const { streamId, sessionId, offer, iceServers } = window.streamSessionData;
                 
-                // Get the session response which should contain ICE servers
-                const sessionResponse = await fetch(`https://api.d-id.com/talks/streams/${streamSessionId}`, {
-                    method: 'GET',
-                    headers: {
-                        'Authorization': `Basic ${didApiKey}`,
-                        'Content-Type': 'application/json'
-                    }
+                // Create WebRTC peer connection with D-ID provided ICE servers
+                peerConnection = new RTCPeerConnection({
+                    iceServers: iceServers
                 });
 
-                if (sessionResponse.ok) {
-                    const sessionData = await sessionResponse.json();
-                    if (sessionData.ice_servers && sessionData.ice_servers.length > 0) {
-                        iceConfig.iceServers = sessionData.ice_servers;
-                        console.log('Using D-ID provided ICE servers:', iceConfig.iceServers);
+                // Handle ICE candidates - send them to D-ID
+                peerConnection.onicecandidate = async (event) => {
+                    if (event.candidate) {
+                        const { candidate, sdpMid, sdpMLineIndex } = event.candidate;
+                        console.log('Sending ICE candidate:', { candidate, sdpMid, sdpMLineIndex });
+                        
+                        try {
+                            await fetch(`https://api.d-id.com/talks/streams/${streamId}/ice`, {
+                                method: 'POST',
+                                headers: {
+                                    'Authorization': `Basic ${didApiKey}`,
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    candidate,
+                                    sdpMid,
+                                    sdpMLineIndex,
+                                    session_id: sessionId
+                                })
+                            });
+                        } catch (iceError) {
+                            console.error('Error sending ICE candidate:', iceError);
+                        }
                     }
-                }
+                };
 
-                // Create WebRTC peer connection
-                peerConnection = new RTCPeerConnection(iceConfig);
-
-                // Handle incoming stream
+                // Handle incoming media stream
                 peerConnection.ontrack = (event) => {
                     console.log('Received stream track:', event);
                     if (event.streams && event.streams[0]) {
@@ -1299,41 +1322,40 @@
                     console.log('ICE connection state:', peerConnection.iceConnectionState);
                 };
 
-                // Create offer and set local description
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
+                // Set the D-ID provided SDP offer as remote description
+                console.log('Setting remote description with D-ID offer');
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
 
-                console.log('Created WebRTC offer:', offer);
+                // Create SDP answer
+                console.log('Creating SDP answer');
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
 
-                // Send offer to D-ID stream endpoint - Fix the SDP exchange
-                const streamResponse = await fetch(`https://api.d-id.com/talks/streams/${streamSessionId}/sdp`, {
+                console.log('Created SDP answer:', answer);
+
+                // Send the SDP answer to D-ID
+                console.log('Sending SDP answer to D-ID');
+                const sdpResponse = await fetch(`https://api.d-id.com/talks/streams/${streamId}/sdp`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Basic ${didApiKey}`,
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        answer: offer, // D-ID expects the offer in the 'answer' field
-                        session_id: streamSessionId
+                        answer: answer,
+                        session_id: sessionId
                     })
                 });
 
-                if (!streamResponse.ok) {
-                    const errorText = await streamResponse.text();
-                    throw new Error(`Stream connection failed: ${streamResponse.status} - ${errorText}`);
+                if (!sdpResponse.ok) {
+                    const errorText = await sdpResponse.text();
+                    throw new Error(`SDP answer failed: ${sdpResponse.status} - ${errorText}`);
                 }
 
-                const streamData = await streamResponse.json();
-                console.log('Stream SDP response:', streamData);
+                const sdpResult = await sdpResponse.json();
+                console.log('SDP answer sent successfully:', sdpResult);
 
-                // Set remote description - Fix: handle both 'answer' and 'offer' fields
-                const remoteDescription = streamData.answer || streamData.offer;
-                if (remoteDescription) {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(remoteDescription));
-                    console.log('WebRTC remote description set');
-                } else {
-                    console.warn('No remote description in response:', streamData);
-                }
+                // Connection will be established when ICE candidates are exchanged
 
             } catch (error) {
                 console.error('Stream connection error:', error);
@@ -2262,6 +2284,7 @@
 
 
     
+
 
 
 
