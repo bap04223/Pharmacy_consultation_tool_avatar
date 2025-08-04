@@ -1119,6 +1119,854 @@ async function disconnectStream() {
         updateAvatarStatus(`Disconnection error: ${error.message}`, 'error');
     }
 }
+                // ===== CONTINUING FROM PART 2A =====
+// Create a new stream session
+async function createStreamSession() {
+    try {
+        const payload = {
+            source_url: streamSessionConfig.presenter_url,
+            driver_url: streamSessionConfig.driver_url
+        };
+
+        console.log('Creating stream session with payload:', payload);
+
+        const response = await fetch('https://api.d-id.com/talks/streams', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Basic ${didApiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Stream session creation error:', errorText);
+            throw new Error(`Failed to create stream session: ${response.status} - ${errorText}`);
+        }
+
+        const result = await response.json();
+        console.log('Stream session created:', result);
+        return result;
+
+    } catch (error) {
+        console.error('Error creating stream session:', error);
+        throw error;
+    }
+}
+
+// Delete stream session
+async function deleteStreamSession(streamId) {
+    try {
+        const response = await fetch(`https://api.d-id.com/talks/streams/${streamId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Basic ${didApiKey}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            console.warn(`Failed to delete stream session: ${response.status}`);
+        } else {
+            console.log('Stream session deleted successfully');
+        }
+
+    } catch (error) {
+        console.warn('Error deleting stream session:', error);
+    }
+}
+
+// Set up WebRTC connection for the stream
+async function setupWebRTCConnection(streamSession) {
+    try {
+        console.log('Setting up WebRTC connection...');
+
+        // Create RTCPeerConnection
+        rtcConnection = new RTCPeerConnection({
+            iceServers: streamSession.ice_servers || [
+                { urls: 'stun:stun.l.google.com:19302' }
+            ]
+        });
+
+        // Handle incoming stream
+        rtcConnection.ontrack = (event) => {
+            console.log('Received remote stream');
+            if (avatarVideo && event.streams[0]) {
+                avatarVideo.srcObject = event.streams[0];
+                avatarVideo.muted = false; // Enable audio for streams
+            }
+        };
+
+        // Handle ICE connection state changes
+        rtcConnection.oniceconnectionstatechange = () => {
+            console.log('ICE connection state:', rtcConnection.iceConnectionState);
+            
+            if (rtcConnection.iceConnectionState === 'connected' || 
+                rtcConnection.iceConnectionState === 'completed') {
+                updateAvatarStatus('WebRTC connected', 'connected');
+            } else if (rtcConnection.iceConnectionState === 'disconnected' ||
+                       rtcConnection.iceConnectionState === 'failed') {
+                updateAvatarStatus('WebRTC connection lost', 'error');
+            }
+        };
+
+        // Create offer
+        const offer = await rtcConnection.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: true
+        });
+
+        await rtcConnection.setLocalDescription(offer);
+
+        // Send offer to D-ID
+        const sdpResponse = await fetch(`https://api.d-id.com/talks/streams/${streamSession.id}/sdp`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Basic ${didApiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                answer: offer,
+                session_id: streamSession.session_id
+            })
+        });
+
+        if (!sdpResponse.ok) {
+            throw new Error(`SDP exchange failed: ${sdpResponse.status}`);
+        }
+
+        const sdpResult = await sdpResponse.json();
+        
+        // Set remote description
+        await rtcConnection.setRemoteDescription(new RTCSessionDescription(sdpResult.answer));
+
+        console.log('WebRTC connection established');
+
+    } catch (error) {
+        console.error('WebRTC setup error:', error);
+        throw error;
+    }
+}
+
+// Send initial context to set up the patient scenario
+async function sendInitialContext() {
+    if (!currentScenario || !currentStreamId) {
+        return;
+    }
+
+    try {
+        // Create context message based on scenario
+        const contextMessage = `You are ${currentScenario['Patient Name'] || 'a patient'}, ` +
+            `a ${currentScenario['Age'] || '30'}-year-old ${currentScenario['Gender'] || 'person'} ` +
+            `visiting the pharmacy. ${currentScenario['Chief Complaint'] || 'You have a health concern'} ` +
+            `${currentScenario['Additional Details'] || ''} ` +
+            `Please stay in character and respond naturally to the pharmacist's questions. ` +
+            `Keep responses conversational and realistic for a pharmacy consultation.`;
+
+        console.log('Sending initial context to stream');
+        await sendToStreamAPI(contextMessage);
+
+    } catch (error) {
+        console.error('Error sending initial context:', error);
+    }
+}
+
+// ===== STREAM COMMUNICATION FUNCTIONS =====
+// Send messages to the D-ID stream
+
+async function sendToStream(message) {
+    if (!isStreamConnected || !currentStreamId) {
+        console.warn('Stream not connected, cannot send message');
+        return;
+    }
+
+    try {
+        console.log('Sending message to stream:', message);
+        updateAvatarStatus('Processing message...', 'streaming');
+        
+        await sendToStreamAPI(message);
+        
+        // Don't wait for response as it comes through WebRTC
+        updateAvatarStatus('Stream active', 'streaming');
+
+    } catch (error) {
+        console.error('Error sending to stream:', error);
+        updateAvatarStatus('Stream error', 'error');
+    }
+}
+
+// Send message to D-ID Streams API
+async function sendToStreamAPI(text) {
+    try {
+        const payload = {
+            script: {
+                type: 'text',
+                input: text,
+                provider: {
+                    type: 'microsoft',
+                    voice_id: 'Sara'
+                }
+            },
+            config: {
+                fluent: true,
+                pad_audio: 0.0,
+                stitch: true
+            },
+            session_id: currentStreamId
+        };
+
+        const response = await fetch(`https://api.d-id.com/talks/streams/${currentStreamId}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Basic ${didApiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Stream API error:', errorText);
+            throw new Error(`Stream API request failed: ${response.status}`);
+        }
+
+        const result = await response.json();
+        console.log('Message sent to stream successfully:', result);
+        return result;
+
+    } catch (error) {
+        console.error('Error in sendToStreamAPI:', error);
+        throw error;
+    }
+}
+
+// Update stream status indicator
+function updateStreamStatus(status, connected) {
+    const indicator = document.getElementById('streamIndicator');
+    const statusText = document.getElementById('streamStatus');
+    
+    if (statusText) {
+        statusText.textContent = status;
+    }
+    
+    if (indicator) {
+        if (connected) {
+            indicator.classList.add('connected');
+        } else {
+            indicator.classList.remove('connected');
+        }
+    }
+}
+
+// Update avatar status display
+function updateAvatarStatus(message, type = 'info') {
+    const statusElement = document.getElementById('avatarStatus');
+    if (statusElement) {
+        statusElement.textContent = message;
+        statusElement.className = `avatar-status ${type}`;
+    }
+}
+
+// ===== GOOGLE SHEETS INTEGRATION =====
+// Load sheet names from Google Sheets
+
+async function loadSheetNames() {
+    const sheetId = document.getElementById('sheetId').value;
+    
+    if (!sheetId) {
+        showStatus('Please enter Sheet ID first', 'error');
+        return;
+    }
+    
+    showStatus('Loading sheet names...', 'info');
+    
+    try {
+        const apiKey = 'AIzaSyDCrWAPXe6eYugvmnO1eJb7-S4QXQj3EgQ'; // REPLACE THIS!
+        const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets.properties.title&key=${apiKey}`;
+        
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        const sheetNames = data.sheets.map(sheet => sheet.properties.title);
+        console.log('Found sheets:', sheetNames);
+        
+        populateSheetNameDropdown(sheetNames);
+        showStatus(`Found ${sheetNames.length} sheets`, 'success');
+        
+    } catch (error) {
+        console.error('Error loading sheet names:', error);
+        showStatus('Could not load sheet names automatically. Enter manually below.', 'error');
+        
+        const select = document.getElementById('sheetName');
+        select.disabled = false;
+        select.innerHTML = '<option value="">Enter sheet name manually below...</option>';
+    }
+}
+
+function populateSheetNameDropdown(sheetNames) {
+    const select = document.getElementById('sheetName');
+    select.innerHTML = '<option value="">Select a sheet...</option>';
+    select.disabled = false;
+    
+    sheetNames.forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        select.appendChild(option);
+    });
+    
+    select.addEventListener('change', function() {
+        if (this.value) {
+            saveConfig();
+            loadSheetData();
+        }
+    });
+}
+
+function getSelectedSheetName() {
+    const dropdown = document.getElementById('sheetName');
+    return dropdown.value;
+}
+
+async function loadSheetData() {
+    const sheetId = document.getElementById('sheetId').value;
+    const sheetName = getSelectedSheetName();
+    
+    if (!sheetId || !sheetName) {
+        showStatus('Please enter Sheet ID and select/enter Sheet Name', 'error');
+        return;
+    }
+    
+    showStatus(`Loading data from sheet: ${sheetName}...`, 'info');
+    
+    try {
+        const apiKey = 'AIzaSyDCrWAPXe6eYugvmnO1eJb7-S4QXQj3EgQ'; // REPLACE THIS!
+        const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(sheetName)}?key=${apiKey}`;
+        
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.values && data.values.length > 0) {
+            sheetData = data.values;
+            populateScenarioDropdown();
+            showStatus(`Loaded ${data.values.length - 1} scenarios from ${sheetName}`, 'success');
+        } else {
+            showStatus('No data found in the selected sheet', 'error');
+        }
+        
+    } catch (error) {
+        console.error('Error loading sheet:', error);
+        showStatus('Error loading sheet data. Check console for details.', 'error');
+    }
+}
+
+function populateScenarioDropdown() {
+    const select = document.getElementById('scenarioSelect');
+    select.innerHTML = '<option value="">Select a scenario...</option>';
+    select.disabled = false;
+    
+    for (let i = 1; i < sheetData.length; i++) {
+        const row = sheetData[i];
+        const option = document.createElement('option');
+        option.value = i;
+        option.textContent = `${i}. ${row[0]}`;
+        select.appendChild(option);
+    }
+    
+    select.removeEventListener('change', handleScenarioChange);
+    select.addEventListener('change', handleScenarioChange);
+}
+
+function handleScenarioChange(e) {
+    if (e.target.value) {
+        selectScenario(parseInt(e.target.value));
+    }
+}
+
+function selectScenario(rowIndex) {
+    const headers = sheetData[0];
+    const row = sheetData[rowIndex];
+    
+    currentScenario = {};
+    headers.forEach((header, index) => {
+        currentScenario[header] = row[index];
+    });
+    
+    console.log('Selected scenario:', currentScenario);
+    showStatus(`Scenario loaded: ${currentScenario['Patient Name'] || currentScenario[headers[0]]}`, 'success');
+    
+    clearChat();
+    addMessage('Scenario loaded. Connect the stream and hold the talk button to start the consultation.', 'system');
+    
+    if (isStreamConnected) {
+        sendInitialContext();
+    }
+}
+
+function selectRandomScenario() {
+    if (sheetData.length <= 1) {
+        showStatus('Please load sheet data first', 'error');
+        return;
+    }
+    
+    const randomIndex = Math.floor(Math.random() * (sheetData.length - 1)) + 1;
+    document.getElementById('scenarioSelect').value = randomIndex;
+    selectScenario(randomIndex);
+    showStatus(`Randomly selected: ${sheetData[randomIndex][0]}`, 'success');
+}
+
+// ===== WEBHOOK COMMUNICATION =====
+async function sendToWebhook(message) {
+    const webhookUrl = document.getElementById('webhookUrl').value;
+    
+    if (!webhookUrl) {
+        console.log('No webhook URL configured, skipping webhook');
+        return;
+    }
+    
+    try {
+        const payload = {
+            sessionId: sessionId,
+            message: message,
+            scenario: currentScenario,
+            timestamp: new Date().toISOString(),
+            conversationHistory: conversationHistory,
+            streamInfo: {
+                streamId: currentStreamId,
+                isConnected: isStreamConnected,
+                mode: 'streams'
+            },
+            studentInfo: {
+                sessionStartTime: new Date(parseInt(sessionId.split('_')[1])).toISOString(),
+                messageCount: conversationHistory.filter(h => h.sender === 'user').length + 1
+            }
+        };
+        
+        fetch(webhookUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            mode: 'cors',
+            body: JSON.stringify(payload)
+        }).then(response => {
+            if (response.ok) {
+                console.log('Webhook sent successfully');
+            } else {
+                console.warn('Webhook failed:', response.status);
+            }
+        }).catch(error => {
+            console.warn('Webhook error:', error);
+        });
+        
+    } catch (error) {
+        console.warn('Webhook error:', error);
+    }
+}
+
+// ===== CHAT MANAGEMENT =====
+function addMessage(text, sender) {
+    const chatContainer = document.getElementById('chatContainer');
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${sender}`;
+    messageDiv.innerHTML = text;
+    
+    chatContainer.appendChild(messageDiv);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+    
+    if (!text.includes('spinner') && sender !== 'system') {
+        conversationHistory.push({
+            sender: sender,
+            message: text,
+            timestamp: new Date().toISOString()
+        });
+    }
+}
+
+function removeLastMessage() {
+    const chatContainer = document.getElementById('chatContainer');
+    const messages = chatContainer.getElementsByClassName('message');
+    if (messages.length > 0) {
+        messages[messages.length - 1].remove();
+    }
+}
+
+function clearChat() {
+    document.getElementById('chatContainer').innerHTML = '';
+    conversationHistory = [];
+}
+
+// ===== UTILITY FUNCTIONS =====
+function showStatus(message, type) {
+    const statusDiv = document.getElementById('status');
+    statusDiv.textContent = message;
+    statusDiv.className = `status ${type}`;
+    statusDiv.style.display = 'block';
+    
+    setTimeout(() => {
+        statusDiv.style.display = 'none';
+    }, 5000);
+}
+
+function saveConfig() {
+    const config = {
+        webhookUrl: document.getElementById('webhookUrl').value,
+        submitWebhookUrl: document.getElementById('submitWebhookUrl').value,
+        sheetId: document.getElementById('sheetId').value,
+        sheetName: getSelectedSheetName(),
+        didApiKey: document.getElementById('didApiKey').value
+    };
+    localStorage.setItem('pharmacyChatConfig', JSON.stringify(config));
+}
+
+function loadSavedConfig() {
+    const saved = localStorage.getItem('pharmacyChatConfig');
+    if (saved) {
+        const config = JSON.parse(saved);
+        document.getElementById('webhookUrl').value = config.webhookUrl || '';
+        document.getElementById('submitWebhookUrl').value = config.submitWebhookUrl || '';
+        document.getElementById('sheetId').value = config.sheetId || '';
+        document.getElementById('didApiKey').value = config.didApiKey || '';
+        
+        const sheetNameDropdown = document.getElementById('sheetName');
+        if (config.sheetName) {
+            if (sheetNameDropdown.options.length > 1) {
+                sheetNameDropdown.value = config.sheetName;
+            }
+        }
+    }
+}
+
+// ===== EXPORT CONVERSATION FUNCTION =====
+function exportConversation() {
+    if (conversationHistory.length === 0) {
+        showStatus('No conversation to export', 'error');
+        return;
+    }
+    
+    try {
+        let exportText = '';
+        
+        exportText += '='.repeat(60) + '\n';
+        exportText += 'PHARMACY CONSULTATION TRAINING - CONVERSATION EXPORT\n';
+        exportText += 'D-ID STREAMS VERSION\n';
+        exportText += '='.repeat(60) + '\n\n';
+        
+        exportText += `Session ID: ${sessionId}\n`;
+        exportText += `Export Date: ${new Date().toLocaleString()}\n`;
+        exportText += `Session Start: ${new Date(parseInt(sessionId.split('_')[1])).toLocaleString()}\n`;
+        exportText += `Stream Mode: D-ID Streams API\n\n`;
+        
+        if (currentScenario) {
+            exportText += 'SCENARIO DETAILS:\n';
+            exportText += '-'.repeat(20) + '\n';
+            Object.keys(currentScenario).forEach(key => {
+                if (currentScenario[key] && currentScenario[key].toString().trim() !== '') {
+                    exportText += `${key}: ${currentScenario[key]}\n`;
+                }
+            });
+            exportText += '\n';
+        }
+        
+        const chatContainer = document.getElementById('chatContainer');
+        const messageElements = chatContainer.getElementsByClassName('message');
+        
+        let userMessages = 0;
+        let aiMessages = 0;
+        let systemMessages = 0;
+        
+        for (let i = 0; i < messageElements.length; i++) {
+            const messageElement = messageElements[i];
+            if (messageElement.className.includes('user')) {
+                userMessages++;
+            } else if (messageElement.className.includes('ai')) {
+                aiMessages++;
+            } else if (messageElement.className.includes('system')) {
+                systemMessages++;
+            }
+        }
+        
+        const sessionDuration = Date.now() - parseInt(sessionId.split('_')[1]);
+        const durationMinutes = Math.floor(sessionDuration / 60000);
+        const durationSeconds = Math.floor((sessionDuration % 60000) / 1000);
+        
+        exportText += 'CONVERSATION STATISTICS:\n';
+        exportText += '-'.repeat(25) + '\n';
+        exportText += `Total Messages: ${userMessages + aiMessages + systemMessages}\n`;
+        exportText += `Student Messages: ${userMessages}\n`;
+        exportText += `AI Patient Messages: ${aiMessages}\n`;
+        exportText += `System Messages: ${systemMessages}\n`;
+        exportText += `Session Duration: ${durationMinutes}m ${durationSeconds}s\n`;
+        exportText += `Stream Connected: ${isStreamConnected ? 'Yes' : 'No'}\n\n`;
+        
+        exportText += 'FULL CONVERSATION:\n';
+        exportText += '-'.repeat(20) + '\n\n';
+        
+        for (let i = 0; i < messageElements.length; i++) {
+            const messageElement = messageElements[i];
+            const messageClass = messageElement.className;
+            
+            let speaker = 'UNKNOWN';
+            if (messageClass.includes('user')) {
+                speaker = 'STUDENT';
+            } else if (messageClass.includes('ai')) {
+                speaker = 'AI PATIENT';
+            } else if (messageClass.includes('system')) {
+                speaker = 'SYSTEM';
+            }
+            
+            let messageContent = messageElement.innerHTML
+                .replace(/<br\s*\/?>/gi, '\n')
+                .replace(/<\/p><p[^>]*>/gi, '\n\n')
+                .replace(/<p[^>]*>/gi, '')
+                .replace(/<\/p>/gi, '')
+                .replace(/<h[1-6][^>]*>/gi, '\n**')
+                .replace(/<\/h[1-6]>/gi, '**\n')
+                .replace(/<strong[^>]*>/gi, '**')
+                .replace(/<\/strong>/gi, '**')
+                .replace(/<em[^>]*>/gi, '*')
+                .replace(/<\/em>/gi, '*')
+                .replace(/<ul[^>]*>/gi, '\n')
+                .replace(/<\/ul>/gi, '')
+                .replace(/<li[^>]*>/gi, '  • ')
+                .replace(/<\/li>/gi, '\n')
+                .replace(/<div[^>]*class="spinner"[^>]*><\/div>/gi, '')
+                .replace(/<[^>]*>/g, '')
+                .replace(/&nbsp;/g, ' ')
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&quot;/g, '"')
+                .replace(/\n\s*\n\s*\n/g, '\n\n')
+                .trim();
+            
+            if (!messageContent || messageContent.includes('spinner') || messageContent === '') {
+                continue;
+            }
+            
+            exportText += `${speaker}:\n`;
+            
+            const lines = messageContent.split('\n');
+            lines.forEach(line => {
+                if (line.trim()) {
+                    exportText += `  ${line.trim()}\n`;
+                } else {
+                    exportText += '\n';
+                }
+            });
+            
+            exportText += '\n';
+        }
+        
+        exportText += '='.repeat(60) + '\n';
+        exportText += 'End of Conversation Export\n';
+        exportText += 'Generated by Pharmacy Training System v2.0 (D-ID Streams)\n';
+        exportText += '='.repeat(60) + '\n';
+        
+        const blob = new Blob([exportText], { type: 'text/plain;charset=utf-8' });
+        const url = window.URL.createObjectURL(blob);
+        
+        const downloadLink = document.createElement('a');
+        downloadLink.href = url;
+        
+        const now = new Date();
+        const dateStr = now.toISOString().split('T')[0];
+        const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
+        const scenarioName = currentScenario && currentScenario['Scenario Name'] 
+            ? currentScenario['Scenario Name'].replace(/[^a-zA-Z0-9]/g, '_') 
+            : 'Unknown_Scenario';
+        
+        downloadLink.download = `Pharmacy_Training_Streams_${scenarioName}_${dateStr}_${timeStr}.txt`;
+        
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+        
+        window.URL.revokeObjectURL(url);
+        
+        showStatus('✅ Conversation exported successfully!', 'success');
+        console.log('Conversation exported:', downloadLink.download);
+        
+    } catch (error) {
+        console.error('Export error:', error);
+        showStatus(`❌ Export failed: ${error.message}`, 'error');
+    }
+}
+
+// ===== SUBMIT CONVERSATION FUNCTION =====
+async function submitConversation() {
+    const submitWebhookUrl = document.getElementById('submitWebhookUrl').value;
+    
+    if (!submitWebhookUrl) {
+        showStatus('Submit webhook URL not configured', 'error');
+        return;
+    }
+    
+    if (conversationHistory.length === 0) {
+        showStatus('No conversation to submit', 'error');
+        return;
+    }
+    
+    showStatus('Submitting conversation...', 'info');
+    addMessage('📤 Submitting conversation for evaluation...', 'system');
+    
+    try {
+        const submissionPayload = {
+            sessionId: sessionId,
+            scenario: currentScenario,
+            conversationHistory: conversationHistory,
+            submissionTime: new Date().toISOString(),
+            sessionInfo: {
+                sessionStartTime: new Date(parseInt(sessionId.split('_')[1])).toISOString(),
+                totalMessages: conversationHistory.length,
+                userMessages: conversationHistory.filter(h => h.sender === 'user').length,
+                aiMessages: conversationHistory.filter(h => h.sender === 'ai').length,
+                duration: Date.now() - parseInt(sessionId.split('_')[1]),
+                mode: 'streams',
+                streamId: currentStreamId,
+                streamConnected: isStreamConnected
+            },
+            metadata: {
+                userAgent: navigator.userAgent,
+                timestamp: new Date().toISOString(),
+                type: 'conversation_submission',
+                version: '2.0_streams'
+            }
+        };
+        
+        const response = await fetch(submitWebhookUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Cache-Control': 'no-cache'
+            },
+            mode: 'cors',
+            body: JSON.stringify(submissionPayload)
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+        }
+        
+        const responseText = await response.text();
+        
+        if (!responseText || responseText.trim() === '') {
+            addMessage('📋 Evaluation Complete:\n\nConversation submitted successfully, but no feedback was returned.', 'system');
+            showStatus('✅ Conversation submitted (no feedback received)', 'success');
+            return;
+        }
+        
+        let feedbackMessage = '';
+        
+        try {
+            const responseData = JSON.parse(responseText);
+            
+            if (responseData.feedback) {
+                feedbackMessage = responseData.feedback;
+            } else if (responseData.evaluation) {
+                feedbackMessage = responseData.evaluation;
+            } else if (responseData.response) {
+                feedbackMessage = responseData.response;
+            } else if (responseData.message) {
+                feedbackMessage = responseData.message;
+            } else if (responseData.data && responseData.data.feedback) {
+                feedbackMessage = responseData.data.feedback;
+            } else if (responseData.data && responseData.data.response) {
+                feedbackMessage = responseData.data.response;
+            } else if (responseData.result) {
+                feedbackMessage = responseData.result;
+            } else {
+                feedbackMessage = `Raw response: ${JSON.stringify(responseData, null, 2)}`;
+            }
+            
+        } catch (parseError) {
+            if (responseText.trim().startsWith('<') && responseText.trim().includes('html')) {
+                feedbackMessage = 'Received HTML response instead of expected feedback. Check your n8n workflow output format.';
+            } else {
+                feedbackMessage = responseText.trim();
+            }
+        }
+        
+        function formatFeedback(text) {
+            if (!text) return text;
+            
+            let formatted = text
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                .replace(/^### (.*$)/gm, '<h3 style="margin: 15px 0 10px 0; color: var(--primary-color); font-size: 1.1em;">$1</h3>')
+                .replace(/^## (.*$)/gm, '<h2 style="margin: 20px 0 10px 0; color: var(--primary-color); font-size: 1.2em;">$1</h2>')
+                .replace(/^# (.*$)/gm, '<h1 style="margin: 20px 0 15px 0; color: var(--primary-color); font-size: 1.3em;">$1</h1>')
+                .replace(/^- (.*$)/gm, '<li style="margin: 5px 0; padding-left: 5px;">$1</li>')
+                .replace(/^\d+\. (.*$)/gm, '<li style="margin: 5px 0; padding-left: 5px;">$1</li>')
+                .replace(/\n\n/g, '</p><p style="margin: 10px 0; line-height: 1.5;">')
+                .replace(/\n/g, '<br>');
+            
+            if (!formatted.includes('<p>') && !formatted.includes('<h')) {
+                formatted = `<p style="margin: 10px 0; line-height: 1.5;">${formatted}</p>`;
+            } else if (formatted.includes('<p>')) {
+                if (!formatted.startsWith('<p>') && !formatted.startsWith('<h')) {
+                    formatted = `<p style="margin: 10px 0; line-height: 1.5;">${formatted}`;
+                }
+                if (!formatted.endsWith('</p>') && !formatted.endsWith('</h3>') && !formatted.endsWith('</h2>') && !formatted.endsWith('</h1>')) {
+                    formatted = `${formatted}</p>`;
+                }
+            }
+            
+            if (formatted.includes('<li>')) {
+                formatted = formatted
+                    .replace(/(<li>.*?<\/li>)/gs, '<ul style="margin: 10px 0; padding-left: 20px;">$1</ul>')
+                    .replace(/<\/ul>\s*<ul[^>]*>/g, '');
+            }
+            
+            return formatted;
+        }
+        
+        if (feedbackMessage) {
+            const formattedFeedback = formatFeedback(feedbackMessage);
+            addMessage(`📋 Evaluation Feedback:<br><br>${formattedFeedback}`, 'system');
+            showStatus('✅ Conversation submitted and evaluated successfully!', 'success');
+        } else {
+            addMessage('📋 Evaluation Complete:\n\nConversation submitted successfully, but the feedback format was not recognized.', 'system');
+            showStatus('✅ Conversation submitted (feedback format issue)', 'success');
+        }
+        
+    } catch (error) {
+        console.error('Submit conversation error:', error);
+        
+        if (error.message.includes('Failed to fetch')) {
+            showStatus('Cannot reach submit webhook - check URL and CORS settings', 'error');
+            addMessage('❌ Submission failed. Make sure your n8n submit webhook is accessible and CORS is enabled.', 'system');
+        } else if (error.message.includes('NetworkError')) {
+            showStatus('Network error - check n8n webhook configuration', 'error');
+            addMessage('❌ Network error. Check that your n8n webhook is running and accessible.', 'system');
+        } else {
+            showStatus(`❌ Submission error: ${error.message}`, 'error');
+            addMessage(`❌ Submission failed: ${error.message}`, 'system');
+        }
+    }
+}
+
+// Cleanup function for page unload
+window.addEventListener('beforeunload', function() {
+    if (isStreamConnected) {
+        disconnectStream();
+    }
+});
 </body>
 </html>
+
 
