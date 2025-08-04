@@ -1230,410 +1230,475 @@
         }
 
         // ===== D-ID STREAM CONNECTION FUNCTIONS =====
-        // Handle WebRTC connection and streaming
+// Handle WebRTC connection and streaming
 
-        async function connectStream() {
-            if (!isStreamInitialized || !streamSessionId || !window.streamSessionData) {
-                showStatus('Stream not initialized', 'error');
-                return;
-            }
+let isConnecting = false; // Add flag to prevent double connections
 
-            try {
-                console.log('Connecting to D-ID stream...');
-                updateAvatarStatus('Connecting to stream...', 'loading');
-                updateStreamStatus('connecting', 'Establishing WebRTC connection...');
+async function connectStream() {
+    if (!isStreamInitialized || !streamSessionId || !window.streamSessionData) {
+        showStatus('Stream not initialized', 'error');
+        return;
+    }
 
-                const { streamId, sessionId, offer, iceServers } = window.streamSessionData;
+    // Prevent double connections
+    if (isConnecting || isStreamConnected) {
+        console.log('Connection already in progress or established');
+        return;
+    }
+    isConnecting = true;
+
+    try {
+        console.log('Connecting to D-ID stream...');
+        updateAvatarStatus('Connecting to stream...', 'loading');
+        updateStreamStatus('connecting', 'Establishing WebRTC connection...');
+
+        const { streamId, sessionId, offer, iceServers } = window.streamSessionData;
+        
+        // Create WebRTC peer connection with D-ID provided ICE servers
+        peerConnection = new RTCPeerConnection({
+            iceServers: iceServers
+        });
+
+        // CRITICAL FIX: Actually send ICE candidates to D-ID
+        peerConnection.onicecandidate = async (event) => {
+            if (event.candidate) {
+                console.log('ICE candidate generated:', event.candidate.candidate);
                 
-                // Create WebRTC peer connection with D-ID provided ICE servers
-                peerConnection = new RTCPeerConnection({
-                    iceServers: iceServers
-                });
-
-                // Skip ICE candidates API calls - WebRTC handles this internally
-                peerConnection.onicecandidate = async (event) => {
-                    if (event.candidate) {
-                        console.log('ICE candidate generated (not sending to API):', event.candidate.candidate);
-                        // Note: WebRTC will handle ICE internally, D-ID's API calls seem to be failing
-                        // but the connection works anyway
+                try {
+                    // Extract session ID value
+                    const sessionIdValue = extractSessionId(sessionId);
+                    
+                    const payload = {
+                        candidate: event.candidate.candidate,
+                        sdpMid: event.candidate.sdpMid,
+                        sdpMLineIndex: event.candidate.sdpMLineIndex
+                    };
+                    
+                    if (sessionIdValue) {
+                        payload.session_id = sessionIdValue;
                     }
-                };
-
-                // Handle incoming media stream
-                peerConnection.ontrack = (event) => {
-                    console.log('Received stream track:', event);
-                    if (event.streams && event.streams[0]) {
-                        avatarVideo.srcObject = event.streams[0];
-                        avatarVideo.classList.add('streaming');
-                        avatarVideo.play().catch(e => console.log('Video autoplay blocked:', e));
-                        console.log('Avatar video stream connected');
+                    
+                    const response = await fetch(`https://api.d-id.com/talks/streams/${streamId}/ice`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Basic ${didApiKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    if (!response.ok) {
+                        console.error('Failed to send ICE candidate:', await response.text());
                     }
-                };
-
-                // Handle connection state changes
-                peerConnection.onconnectionstatechange = () => {
-                    console.log('WebRTC connection state:', peerConnection.connectionState);
-                    switch (peerConnection.connectionState) {
-                        case 'connected':
-                            isStreamConnected = true;
-                            updateAvatarStatus('Stream connected - Ready for conversation', 'streaming');
-                            updateStreamStatus('connected', 'WebRTC connection established');
-                            updateTalkButton();
-                            
-                            // Show disconnect button, hide connect button
-                            document.getElementById('connectStreamBtn').style.display = 'none';
-                            document.getElementById('disconnectStreamBtn').style.display = 'block';
-                            document.getElementById('idleBtn').style.display = 'inline-block';
-                            
-                            // Test sending a message once connected
-                            setTimeout(() => {
-                                console.log('Testing stream messaging...');
-                                sendToStream('Hello, this is a test message to the avatar.');
-                            }, 2000);
-                            
-                            break;
-                        case 'disconnected':
-                        case 'failed':
-                        case 'closed':
-                            isStreamConnected = false;
-                            updateAvatarStatus('Stream disconnected', 'error');
-                            updateStreamStatus('disconnected', 'WebRTC connection lost');
-                            updateTalkButton();
-                            avatarVideo.classList.remove('streaming');
-                            
-                            // Show connect button, hide disconnect button
-                            document.getElementById('connectStreamBtn').style.display = 'block';
-                            document.getElementById('disconnectStreamBtn').style.display = 'none';
-                            document.getElementById('idleBtn').style.display = 'none';
-                            document.getElementById('stopIdleBtn').style.display = 'none';
-                            break;
-                    }
-                };
-
-                // Handle ICE connection state changes
-                peerConnection.oniceconnectionstatechange = () => {
-                    console.log('ICE connection state:', peerConnection.iceConnectionState);
-                };
-
-                // Set the D-ID provided SDP offer as remote description
-                console.log('Setting remote description with D-ID offer');
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-
-                // Create SDP answer
-                console.log('Creating SDP answer');
-                const answer = await peerConnection.createAnswer();
-                await peerConnection.setLocalDescription(answer);
-
-                console.log('Created SDP answer - WebRTC should connect automatically');
-                
-                // Skip the SDP API call since it's failing but WebRTC works anyway
-                console.log('Skipping SDP API call - letting WebRTC handle connection internally');
-                
-                // The connection will establish through WebRTC's internal mechanisms
-                updateAvatarStatus('WebRTC connecting...', 'streaming');
-
-            } catch (error) {
-                console.error('Stream connection error:', error);
-                updateAvatarStatus(`Connection error: ${error.message}`, 'error');
-                updateStreamStatus('disconnected', `Connection failed: ${error.message}`);
-                isStreamConnected = false;
-            }
-        }
-
-        async function disconnectStream() {
-            try {
-                console.log('Disconnecting from D-ID stream...');
-                updateAvatarStatus('Disconnecting stream...', 'loading');
-                updateStreamStatus('connecting', 'Disconnecting...');
-
-                // Close WebRTC connection
-                if (peerConnection) {
-                    peerConnection.close();
-                    peerConnection = null;
+                } catch (error) {
+                    console.error('Error sending ICE candidate:', error);
                 }
+            }
+        };
 
-                // Clear video stream
-                if (avatarVideo) {
+        // FIX: Properly handle incoming media stream without recreating video element
+        let hasReceivedTrack = false;
+        peerConnection.ontrack = (event) => {
+            console.log('Received stream track:', event);
+            if (event.streams && event.streams[0] && !hasReceivedTrack) {
+                hasReceivedTrack = true;
+                // Clear any existing stream first
+                if (avatarVideo.srcObject) {
                     avatarVideo.srcObject = null;
+                }
+                
+                avatarVideo.srcObject = event.streams[0];
+                avatarVideo.classList.add('streaming');
+                
+                // Ensure video can autoplay
+                avatarVideo.muted = true; // Allow autoplay
+                avatarVideo.play().catch(e => {
+                    console.log('Video autoplay blocked:', e);
+                    // Try playing on user interaction
+                    document.addEventListener('click', () => {
+                        avatarVideo.play();
+                    }, { once: true });
+                });
+                
+                console.log('Avatar video stream connected');
+            }
+        };
+
+        // Handle connection state changes
+        peerConnection.onconnectionstatechange = () => {
+            console.log('WebRTC connection state:', peerConnection.connectionState);
+            switch (peerConnection.connectionState) {
+                case 'connected':
+                    isStreamConnected = true;
+                    isConnecting = false;
+                    updateAvatarStatus('Stream connected - Ready for conversation', 'streaming');
+                    updateStreamStatus('connected', 'WebRTC connection established');
+                    updateTalkButton();
+                    
+                    // Show disconnect button, hide connect button
+                    document.getElementById('connectStreamBtn').style.display = 'none';
+                    document.getElementById('disconnectStreamBtn').style.display = 'block';
+                    document.getElementById('idleBtn').style.display = 'inline-block';
+                    
+                    // Remove the test message - let user initiate first message
+                    console.log('Stream ready for messages');
+                    
+                    break;
+                case 'disconnected':
+                case 'failed':
+                case 'closed':
+                    isStreamConnected = false;
+                    isConnecting = false;
+                    updateAvatarStatus('Stream disconnected', 'error');
+                    updateStreamStatus('disconnected', 'WebRTC connection lost');
+                    updateTalkButton();
                     avatarVideo.classList.remove('streaming');
-                }
-
-                // Delete stream session
-                if (streamSessionId) {
-                    try {
-                        await fetch(`https://api.d-id.com/talks/streams/${streamSessionId}`, {
-                            method: 'DELETE',
-                            headers: {
-                                'Authorization': `Basic ${didApiKey}`,
-                                'Content-Type': 'application/json'
-                            }
-                        });
-                        console.log('Stream session deleted');
-                    } catch (deleteError) {
-                        console.warn('Error deleting stream session:', deleteError);
-                    }
-                }
-
-                // Reset state
-                isStreamConnected = false;
-                isStreamInitialized = false;
-                streamSessionId = null;
-                streamUrl = null;
-
-                updateAvatarStatus('Stream disconnected', 'info');
-                updateStreamStatus('disconnected', 'Stream session ended');
-                updateTalkButton();
-
-                // Show initialize button, hide others
-                document.getElementById('initStreamBtn').style.display = 'block';
-                document.getElementById('connectStreamBtn').style.display = 'none';
-                document.getElementById('disconnectStreamBtn').style.display = 'none';
-                document.getElementById('idleBtn').style.display = 'none';
-                document.getElementById('stopIdleBtn').style.display = 'none';
-
-            } catch (error) {
-                console.error('Stream disconnection error:', error);
-                updateAvatarStatus(`Disconnect error: ${error.message}`, 'error');
+                    
+                    // Show connect button, hide disconnect button
+                    document.getElementById('connectStreamBtn').style.display = 'block';
+                    document.getElementById('disconnectStreamBtn').style.display = 'none';
+                    document.getElementById('idleBtn').style.display = 'none';
+                    document.getElementById('stopIdleBtn').style.display = 'none';
+                    break;
             }
+        };
+
+        // Handle ICE connection state changes
+        peerConnection.oniceconnectionstatechange = () => {
+            console.log('ICE connection state:', peerConnection.iceConnectionState);
+        };
+
+        // Set the D-ID provided SDP offer as remote description
+        console.log('Setting remote description with D-ID offer');
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+
+        // Create SDP answer
+        console.log('Creating SDP answer');
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+
+        console.log('Created SDP answer - sending to D-ID');
+        
+        // CRITICAL FIX: Send the SDP answer back to D-ID
+        try {
+            const sessionIdValue = extractSessionId(sessionId);
+            const sdpPayload = {
+                answer: {
+                    type: answer.type,
+                    sdp: answer.sdp
+                }
+            };
+            
+            if (sessionIdValue) {
+                sdpPayload.session_id = sessionIdValue;
+            }
+            
+            const sdpResponse = await fetch(`https://api.d-id.com/talks/streams/${streamId}/sdp`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Basic ${didApiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(sdpPayload)
+            });
+            
+            if (!sdpResponse.ok) {
+                console.error('Failed to send SDP answer:', await sdpResponse.text());
+            } else {
+                console.log('SDP answer sent successfully');
+            }
+        } catch (sdpError) {
+            console.error('Error sending SDP answer:', sdpError);
+        }
+        
+        updateAvatarStatus('WebRTC connecting...', 'streaming');
+
+    } catch (error) {
+        console.error('Stream connection error:', error);
+        updateAvatarStatus(`Connection error: ${error.message}`, 'error');
+        updateStreamStatus('disconnected', `Connection failed: ${error.message}`);
+        isStreamConnected = false;
+        isConnecting = false;
+    }
+}
+
+async function disconnectStream() {
+    try {
+        console.log('Disconnecting from D-ID stream...');
+        updateAvatarStatus('Disconnecting stream...', 'loading');
+        updateStreamStatus('connecting', 'Disconnecting...');
+
+        // Close WebRTC connection
+        if (peerConnection) {
+            peerConnection.close();
+            peerConnection = null;
         }
 
-        // ===== STREAM COMMUNICATION FUNCTIONS =====
-        // Send messages and handle responses
-
-        async function sendToStream(text) {
-            if (!isStreamConnected || !streamSessionId || !window.streamSessionData) {
-                console.log('Stream not connected, skipping stream message');
-                return;
-            }
-
-            try {
-                console.log('Sending message to stream:', text);
-                addMessage('<div class="stream-spinner"></div>', 'stream');
-
-                const { streamId, sessionId } = window.streamSessionData;
-                
-                // Extract just the AWSALB cookie value
-                function extractSessionId(cookieString) {
-                    if (!cookieString || !cookieString.includes('AWSALB=')) {
-                        return null;
-                    }
-                    const awsalbMatch = cookieString.match(/AWSALB=([^;]+)/);
-                    return awsalbMatch ? awsalbMatch[1] : null;
-                }
-                
-                const sessionIdValue = extractSessionId(sessionId);
-
-                const payload = {
-                    script: {
-                        type: 'text',
-                        input: text,
-                        provider: {
-                            type: 'microsoft',
-                            voice_id: 'Sara'
-                        }
-                    },
-                    config: {
-                        stitch: true,
-                        fluent: true
-                    }
-                };
-                
-                // Add session_id if we have it
-                if (sessionIdValue) {
-                    payload.session_id = sessionIdValue;
-                }
-
-                const response = await fetch(`https://api.d-id.com/talks/streams/${streamId}`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Basic ${didApiKey}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(payload)
-                });
-
-                // Remove loading spinner
-                removeLastMessage();
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Stream message failed: ${response.status} - ${errorText}`);
-                }
-
-                const result = await response.json();
-                console.log('Stream message sent successfully:', result);
-
-                // Add stream response indicator
-                addMessage(`🎭 Avatar is responding via stream...`, 'stream');
-
-                return result;
-
-            } catch (error) {
-                console.error('Stream message error:', error);
-                removeLastMessage();
-                addMessage(`❌ Stream error: ${error.message}`, 'stream');
-                throw error;
-            }
+        // Clear video stream
+        if (avatarVideo) {
+            avatarVideo.srcObject = null;
+            avatarVideo.classList.remove('streaming');
         }
 
-        // ===== STREAM IDLE FUNCTIONS =====
-        // Control avatar idle state
-
-        async function startIdle() {
-            if (!isStreamConnected || !streamSessionId || !window.streamSessionData) {
-                showStatus('Stream not connected', 'error');
-                return;
-            }
-
+        // Delete stream session
+        if (streamSessionId) {
             try {
-                console.log('Starting stream idle...');
-                
-                const { streamId, sessionId } = window.streamSessionData;
-                
-                // Extract just the AWSALB cookie value
-                function extractSessionId(cookieString) {
-                    if (!cookieString || !cookieString.includes('AWSALB=')) {
-                        return null;
-                    }
-                    const awsalbMatch = cookieString.match(/AWSALB=([^;]+)/);
-                    return awsalbMatch ? awsalbMatch[1] : null;
-                }
-                
-                const sessionIdValue = extractSessionId(sessionId);
-                const payload = {};
-                
-                // Add session_id if we have it
-                if (sessionIdValue) {
-                    payload.session_id = sessionIdValue;
-                }
-                
-                const response = await fetch(`https://api.d-id.com/talks/streams/${streamId}/idle`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Basic ${didApiKey}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(payload)
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Idle start failed: ${response.status} - ${errorText}`);
-                }
-
-                console.log('Stream idle started');
-                addMessage('😴 Avatar entered idle mode', 'stream');
-                
-                document.getElementById('idleBtn').style.display = 'none';
-                document.getElementById('stopIdleBtn').style.display = 'inline-block';
-
-            } catch (error) {
-                console.error('Start idle error:', error);
-                showStatus(`Idle error: ${error.message}`, 'error');
-            }
-        }
-
-        async function stopIdle() {
-            if (!isStreamConnected || !streamSessionId || !window.streamSessionData) {
-                showStatus('Stream not connected', 'error');
-                return;
-            }
-
-            try {
-                console.log('Stopping stream idle...');
-                
-                const { streamId, sessionId } = window.streamSessionData;
-                
-                // Extract just the AWSALB cookie value
-                function extractSessionId(cookieString) {
-                    if (!cookieString || !cookieString.includes('AWSALB=')) {
-                        return null;
-                    }
-                    const awsalbMatch = cookieString.match(/AWSALB=([^;]+)/);
-                    return awsalbMatch ? awsalbMatch[1] : null;
-                }
-                
-                const sessionIdValue = extractSessionId(sessionId);
-                const payload = {};
-                
-                // Add session_id if we have it
-                if (sessionIdValue) {
-                    payload.session_id = sessionIdValue;
-                }
-                
-                const response = await fetch(`https://api.d-id.com/talks/streams/${streamId}/idle`, {
+                await fetch(`https://api.d-id.com/talks/streams/${streamSessionId}`, {
                     method: 'DELETE',
                     headers: {
                         'Authorization': `Basic ${didApiKey}`,
                         'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(payload)
+                    }
                 });
+                console.log('Stream session deleted');
+            } catch (deleteError) {
+                console.warn('Error deleting stream session:', deleteError);
+            }
+        }
 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Idle stop failed: ${response.status} - ${errorText}`);
+        // Reset state
+        isStreamConnected = false;
+        isStreamInitialized = false;
+        isConnecting = false;
+        streamSessionId = null;
+        streamUrl = null;
+
+        updateAvatarStatus('Stream disconnected', 'info');
+        updateStreamStatus('disconnected', 'Stream session ended');
+        updateTalkButton();
+
+        // Show initialize button, hide others
+        document.getElementById('initStreamBtn').style.display = 'block';
+        document.getElementById('connectStreamBtn').style.display = 'none';
+        document.getElementById('disconnectStreamBtn').style.display = 'none';
+        document.getElementById('idleBtn').style.display = 'none';
+        document.getElementById('stopIdleBtn').style.display = 'none';
+
+    } catch (error) {
+        console.error('Stream disconnection error:', error);
+        updateAvatarStatus(`Disconnect error: ${error.message}`, 'error');
+    }
+}
+
+// Helper function to extract session ID
+function extractSessionId(cookieString) {
+    if (!cookieString || !cookieString.includes('AWSALB=')) {
+        return null;
+    }
+    const awsalbMatch = cookieString.match(/AWSALB=([^;]+)/);
+    return awsalbMatch ? awsalbMatch[1] : null;
+}
+
+// ===== STREAM COMMUNICATION FUNCTIONS =====
+// Send messages and handle responses
+
+async function sendToStream(text) {
+    if (!isStreamConnected || !streamSessionId || !window.streamSessionData) {
+        console.log('Stream not connected, skipping stream message');
+        return;
+    }
+
+    try {
+        console.log('Sending message to stream:', text);
+        addMessage('<div class="stream-spinner"></div>', 'stream');
+
+        const { streamId, sessionId } = window.streamSessionData;
+        
+        const sessionIdValue = extractSessionId(sessionId);
+
+        const payload = {
+            script: {
+                type: 'text',
+                input: text,
+                provider: {
+                    type: 'microsoft',
+                    voice_id: 'Sara'
                 }
-
-                console.log('Stream idle stopped');
-                addMessage('👋 Avatar exited idle mode', 'stream');
-                
-                document.getElementById('idleBtn').style.display = 'inline-block';
-                document.getElementById('stopIdleBtn').style.display = 'none';
-
-            } catch (error) {
-                console.error('Stop idle error:', error);
-                showStatus(`Idle error: ${error.message}`, 'error');
+            },
+            config: {
+                stitch: true,
+                fluent: true
             }
+        };
+        
+        // Add session_id if we have it
+        if (sessionIdValue) {
+            payload.session_id = sessionIdValue;
         }
 
-        // ===== STREAM STATUS MANAGEMENT =====
-        // Update stream connection indicators
+        const response = await fetch(`https://api.d-id.com/talks/streams/${streamId}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Basic ${didApiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
 
-        function updateStreamStatus(status, message) {
-            const indicator = document.getElementById('streamIndicator');
-            const statusText = document.getElementById('streamStatus');
-            const details = document.getElementById('streamDetails');
+        // Remove loading spinner
+        removeLastMessage();
 
-            if (indicator) {
-                indicator.className = `stream-indicator ${status}`;
-            }
-
-            if (statusText) {
-                const statusMap = {
-                    'connected': '🟢 Stream Connected',
-                    'connecting': '🟡 Connecting...',
-                    'disconnected': '🔴 Stream Disconnected'
-                };
-                statusText.textContent = statusMap[status] || statusText.textContent;
-            }
-
-            if (details) {
-                details.textContent = message;
-            }
-
-            // Update avatar status indicator
-            const avatarStatus = document.getElementById('avatarStatus');
-            if (avatarStatus) {
-                const existingIndicator = avatarStatus.querySelector('.stream-indicator');
-                if (existingIndicator) {
-                    existingIndicator.className = `stream-indicator ${status}`;
-                }
-            }
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Stream message failed: ${response.status} - ${errorText}`);
         }
 
-        // Update avatar status display
-        function updateAvatarStatus(message, type = 'info') {
-            const statusElement = document.getElementById('avatarStatus');
-            if (statusElement) {
-                // Preserve stream indicator
-                const indicator = statusElement.querySelector('.stream-indicator');
-                const indicatorHtml = indicator ? indicator.outerHTML : '<span class="stream-indicator disconnected"></span>';
-                statusElement.innerHTML = `${indicatorHtml}${message}`;
-                statusElement.className = `avatar-status ${type}`;
-            }
+        const result = await response.json();
+        console.log('Stream message sent successfully:', result);
+
+        // Add stream response indicator
+        addMessage(`🎭 Avatar is responding via stream...`, 'stream');
+
+        return result;
+
+    } catch (error) {
+        console.error('Stream message error:', error);
+        removeLastMessage();
+        addMessage(`❌ Stream error: ${error.message}`, 'stream');
+        throw error;
+    }
+}
+
+// ===== STREAM IDLE FUNCTIONS =====
+// Control avatar idle state
+
+async function startIdle() {
+    if (!isStreamConnected || !streamSessionId || !window.streamSessionData) {
+        showStatus('Stream not connected', 'error');
+        return;
+    }
+
+    try {
+        console.log('Starting stream idle...');
+        
+        const { streamId, sessionId } = window.streamSessionData;
+        
+        const sessionIdValue = extractSessionId(sessionId);
+        const payload = {};
+        
+        // Add session_id if we have it
+        if (sessionIdValue) {
+            payload.session_id = sessionIdValue;
+        }
+        
+        const response = await fetch(`https://api.d-id.com/talks/streams/${streamId}/idle`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Basic ${didApiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Idle start failed: ${response.status} - ${errorText}`);
         }
 
+        console.log('Stream idle started');
+        addMessage('😴 Avatar entered idle mode', 'stream');
+        
+        document.getElementById('idleBtn').style.display = 'none';
+        document.getElementById('stopIdleBtn').style.display = 'inline-block';
+
+    } catch (error) {
+        console.error('Start idle error:', error);
+        showStatus(`Idle error: ${error.message}`, 'error');
+    }
+}
+
+async function stopIdle() {
+    if (!isStreamConnected || !streamSessionId || !window.streamSessionData) {
+        showStatus('Stream not connected', 'error');
+        return;
+    }
+
+    try {
+        console.log('Stopping stream idle...');
+        
+        const { streamId, sessionId } = window.streamSessionData;
+        
+        const sessionIdValue = extractSessionId(sessionId);
+        const payload = {};
+        
+        // Add session_id if we have it
+        if (sessionIdValue) {
+            payload.session_id = sessionIdValue;
+        }
+        
+        const response = await fetch(`https://api.d-id.com/talks/streams/${streamId}/idle`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Basic ${didApiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Idle stop failed: ${response.status} - ${errorText}`);
+        }
+
+        console.log('Stream idle stopped');
+        addMessage('👋 Avatar exited idle mode', 'stream');
+        
+        document.getElementById('idleBtn').style.display = 'inline-block';
+        document.getElementById('stopIdleBtn').style.display = 'none';
+
+    } catch (error) {
+        console.error('Stop idle error:', error);
+        showStatus(`Idle error: ${error.message}`, 'error');
+    }
+}
+
+// ===== STREAM STATUS MANAGEMENT =====
+// Update stream connection indicators
+
+function updateStreamStatus(status, message) {
+    const indicator = document.getElementById('streamIndicator');
+    const statusText = document.getElementById('streamStatus');
+    const details = document.getElementById('streamDetails');
+
+    if (indicator) {
+        indicator.className = `stream-indicator ${status}`;
+    }
+
+    if (statusText) {
+        const statusMap = {
+            'connected': '🟢 Stream Connected',
+            'connecting': '🟡 Connecting...',
+            'disconnected': '🔴 Stream Disconnected'
+        };
+        statusText.textContent = statusMap[status] || statusText.textContent;
+    }
+
+    if (details) {
+        details.textContent = message;
+    }
+
+    // Update avatar status indicator
+    const avatarStatus = document.getElementById('avatarStatus');
+    if (avatarStatus) {
+        const existingIndicator = avatarStatus.querySelector('.stream-indicator');
+        if (existingIndicator) {
+            existingIndicator.className = `stream-indicator ${status}`;
+        }
+    }
+}
+
+// Update avatar status display
+function updateAvatarStatus(message, type = 'info') {
+    const statusElement = document.getElementById('avatarStatus');
+    if (statusElement) {
+        // Preserve stream indicator
+        const indicator = statusElement.querySelector('.stream-indicator');
+        const indicatorHtml = indicator ? indicator.outerHTML : '<span class="stream-indicator disconnected"></span>';
+        statusElement.innerHTML = `${indicatorHtml}${message}`;
+        statusElement.className = `avatar-status ${type}`;
+    }
+}
+        
         // ===== GOOGLE SHEETS INTEGRATION =====
         // Load sheet names and data (unchanged from original)
         
@@ -2316,6 +2381,7 @@
 
 
     
+
 
 
 
