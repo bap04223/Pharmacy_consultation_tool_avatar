@@ -561,40 +561,47 @@
                 <h2>⚙️ Configuration</h2>
                 <div class="card-content">
                     <div class="scrollable-section">
-                        <!-- n8n webhook URL input -->
-                        <div class="form-group">
-                            <label for="webhookUrl">n8n Webhook URL (Chat):</label>
-                            <input 
-                                type="password" 
-                                id="webhookUrl" 
-                                placeholder="https://your-n8n-instance.com/webhook/..."
-                                title="Enter your n8n webhook URL that will receive the messages"
-                                autocomplete="new-password"
-                            >
-                        </div>
-                        
-                        <!-- Submit webhook URL input -->
-                        <div class="form-group">
-                            <label for="submitWebhookUrl">n8n Submit Webhook URL:</label>
-                            <input 
-                                type="password"
-                                id="submitWebhookUrl" 
-                                placeholder="https://your-n8n-instance.com/webhook/submit..."
-                                title="Enter your n8n webhook URL for submitting conversation history"
-                                autocomplete="new-password"
-                            >
-                        </div>
-                        
-                        <!-- Google Sheets configuration -->
-                        <div class="form-group">
-                            <label for="sheetId">Google Sheet ID:</label>
-                            <input 
-                                type="password" 
-                                id="sheetId" 
-                                placeholder="1ABC...xyz"
-                                title="The ID from your Google Sheets URL"
-                                autocomplete="new-password"
-                            >
+                        <!-- Configuration Form -->
+                        <form id="configForm" style="margin: 0;" autocomplete="off">
+                            <!-- n8n webhook URL input -->
+                            <div class="form-group">
+                                <label for="webhookUrl">n8n Webhook URL (Chat):</label>
+                                <input 
+                                    type="password" 
+                                    id="webhookUrl" 
+                                    name="webhookUrl"
+                                    placeholder="https://your-n8n-instance.com/webhook/..."
+                                    title="Enter your n8n webhook URL that will receive the messages"
+                                    autocomplete="new-password"
+                                >
+                            </div>
+                            
+                            <!-- Submit webhook URL input -->
+                            <div class="form-group">
+                                <label for="submitWebhookUrl">n8n Submit Webhook URL:</label>
+                                <input 
+                                    type="password"
+                                    id="submitWebhookUrl" 
+                                    name="submitWebhookUrl"
+                                    placeholder="https://your-n8n-instance.com/webhook/submit..."
+                                    title="Enter your n8n webhook URL for submitting conversation history"
+                                    autocomplete="new-password"
+                                >
+                            </div>
+                            
+                            <!-- Google Sheets configuration -->
+                            <div class="form-group">
+                                <label for="sheetId">Google Sheet ID:</label>
+                                <input 
+                                    type="password" 
+                                    id="sheetId" 
+                                    name="sheetId"
+                                    placeholder="1ABC...xyz"
+                                    title="The ID from your Google Sheets URL"
+                                    autocomplete="new-password"
+                                >
+                            </div>
+                        </form>
                             <button 
                                 class="btn-secondary" 
                                 onclick="loadSheetNames()" 
@@ -710,15 +717,13 @@
                         </div>
                     </div>
                     
-                    <!-- Push to talk button -->
+                    <!-- Push to talk button with passive touch events -->
                     <button 
                         class="talk-button btn-danger" 
                         id="talkButton"
                         onmousedown="startRecording()"
                         onmouseup="stopRecording()"
                         onmouseleave="stopRecording()"
-                        ontouchstart="startRecording()"
-                        ontouchend="stopRecording()"
                         disabled
                     >
                         Connect Stream First
@@ -808,7 +813,6 @@
             </div>
         </div>
     </div>
-
 
     <!-- JavaScript code for D-ID Stream API functionality -->
     <script>
@@ -914,6 +918,13 @@
             document.getElementById('submitWebhookUrl').addEventListener('change', saveConfig);
             document.getElementById('sheetId').addEventListener('change', saveConfig);
             document.getElementById('didApiKey').addEventListener('change', saveConfig);
+            
+            // Add passive touch event listeners for talk button
+            const talkButton = document.getElementById('talkButton');
+            if (talkButton) {
+                talkButton.addEventListener('touchstart', startRecording, { passive: false });
+                talkButton.addEventListener('touchend', stopRecording, { passive: true });
+            }
         }
         
         // ===== SPEECH RECOGNITION SETUP =====
@@ -1187,6 +1198,11 @@
 
                 const result = await response.json();
                 console.log('Stream session creation response:', result);
+                
+                // Fix: Extract session URL properly - D-ID streams don't have a direct session_url
+                // The connection is handled via WebRTC with the session ID
+                result.session_url = `wss://api.d-id.com/talks/streams/${result.id}/ice`;
+                
                 return result;
 
             } catch (error) {
@@ -1195,11 +1211,11 @@
             }
         }
 
-     // ===== D-ID STREAM CONNECTION FUNCTIONS =====
+        // ===== D-ID STREAM CONNECTION FUNCTIONS =====
         // Handle WebRTC connection and streaming
 
         async function connectStream() {
-            if (!isStreamInitialized || !streamUrl) {
+            if (!isStreamInitialized || !streamSessionId) {
                 showStatus('Stream not initialized', 'error');
                 return;
             }
@@ -1209,10 +1225,30 @@
                 updateAvatarStatus('Connecting to stream...', 'loading');
                 updateStreamStatus('connecting', 'Establishing WebRTC connection...');
 
-                // Create WebRTC peer connection
-                peerConnection = new RTCPeerConnection({
+                // Use ICE servers from the stream session response if available
+                const iceConfig = {
                     iceServers: streamIceServers
+                };
+                
+                // Get the session response which should contain ICE servers
+                const sessionResponse = await fetch(`https://api.d-id.com/talks/streams/${streamSessionId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Basic ${didApiKey}`,
+                        'Content-Type': 'application/json'
+                    }
                 });
+
+                if (sessionResponse.ok) {
+                    const sessionData = await sessionResponse.json();
+                    if (sessionData.ice_servers && sessionData.ice_servers.length > 0) {
+                        iceConfig.iceServers = sessionData.ice_servers;
+                        console.log('Using D-ID provided ICE servers:', iceConfig.iceServers);
+                    }
+                }
+
+                // Create WebRTC peer connection
+                peerConnection = new RTCPeerConnection(iceConfig);
 
                 // Handle incoming stream
                 peerConnection.ontrack = (event) => {
@@ -1220,6 +1256,7 @@
                     if (event.streams && event.streams[0]) {
                         avatarVideo.srcObject = event.streams[0];
                         avatarVideo.classList.add('streaming');
+                        avatarVideo.play().catch(e => console.log('Video autoplay blocked:', e));
                         console.log('Avatar video stream connected');
                     }
                 };
@@ -1268,7 +1305,7 @@
 
                 console.log('Created WebRTC offer:', offer);
 
-                // Send offer to D-ID stream endpoint
+                // Send offer to D-ID stream endpoint - Fix the SDP exchange
                 const streamResponse = await fetch(`https://api.d-id.com/talks/streams/${streamSessionId}/sdp`, {
                     method: 'POST',
                     headers: {
@@ -1276,7 +1313,7 @@
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        answer: offer,
+                        answer: offer, // D-ID expects the offer in the 'answer' field
                         session_id: streamSessionId
                     })
                 });
@@ -1289,10 +1326,13 @@
                 const streamData = await streamResponse.json();
                 console.log('Stream SDP response:', streamData);
 
-                // Set remote description
-                if (streamData.answer) {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(streamData.answer));
-                    console.log('WebRTC connection established');
+                // Set remote description - Fix: handle both 'answer' and 'offer' fields
+                const remoteDescription = streamData.answer || streamData.offer;
+                if (remoteDescription) {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(remoteDescription));
+                    console.log('WebRTC remote description set');
+                } else {
+                    console.warn('No remote description in response:', streamData);
                 }
 
             } catch (error) {
@@ -2219,6 +2259,10 @@
 </body>
 </html>
     
+
+
+    
+
 
 
 
